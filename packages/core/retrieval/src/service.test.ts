@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { globalScope, projectScope, sessionScope } from "@brain/contracts";
+import { globalScope, projectScope, sessionScope, type RankedResult } from "@brain/contracts";
 import { FakeRetrievalStore, buildMemoryRecord } from "@brain/test-fixtures";
 import { RetrievalService } from "./service.js";
 
@@ -155,4 +155,26 @@ test("a lexical (non-semantic) storage failure is NOT swallowed -- it propagates
   };
   const service = new RetrievalService(store);
   await assert.rejects(() => service.getCandidates({ text: "anything", scope: globalScope(), limit: 10 }), /simulated data corruption/);
+});
+
+test("getRedundancyPairs: delegates to the store and re-orients by rank", async () => {
+  const store = new FakeRetrievalStore();
+  const a = buildMemoryRecord({ content: "database access must go through the repository layer" });
+  const b = buildMemoryRecord({ content: "repository pattern abstracts database access" });
+  store.index(a);
+  store.index(b);
+  const service = new RetrievalService(store);
+  const rankedResults: RankedResult[] = [
+    { memoryId: a.id, record: a, score: 1, signals: { diversity: null }, rank: 1 },
+    { memoryId: b.id, record: b, score: 0.5, signals: { diversity: null }, rank: 2 },
+  ];
+  const pairs = await service.getRedundancyPairs(rankedResults, 0);
+  assert.ok(pairs.length > 0);
+  assert.equal(pairs[0]?.a, a.id, "the higher-ranked memory (rank 1) must be `a`");
+});
+
+test("getRedundancyPairs: fewer than two ranked results returns no pairs, no error", async () => {
+  const store = new FakeRetrievalStore();
+  const service = new RetrievalService(store);
+  assert.deepEqual(await service.getRedundancyPairs([], 0.5), []);
 });

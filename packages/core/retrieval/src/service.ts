@@ -1,5 +1,6 @@
-import { RetrievalQuerySchema, type RetrievalQuery, type Candidate, type RetrievalStore } from "@brain/contracts";
+import { RetrievalQuerySchema, type RetrievalQuery, type Candidate, type RetrievalStore, type RankedResult, type SimilarityPair } from "@brain/contracts";
 import { mergeCandidates } from "./merge.js";
+import { toRedundancyPairs } from "./redundancy.js";
 
 /**
  * Candidate generation ONLY. "Here are the potentially relevant things" -- never
@@ -47,5 +48,17 @@ export class RetrievalService {
     }
 
     return mergeCandidates(lexicalResult.value, semanticCandidates);
+  }
+
+  /**
+   * P2-013: redundancy-pair computation in retrieval preparation, which
+   * already has store access (PHASE_2_SPEC.md 8). Delegates the actual
+   * similarity math to the store (E25) and only re-orients by rank here --
+   * this method does no vector math itself.
+   */
+  async getRedundancyPairs(rankedResults: RankedResult[], minSimilarity: number): Promise<SimilarityPair[]> {
+    if (rankedResults.length < 2) return [];
+    const pairs = await this.store.findSimilarPairs(rankedResults.map((r) => r.memoryId), minSimilarity);
+    return toRedundancyPairs(rankedResults, pairs);
   }
 }
