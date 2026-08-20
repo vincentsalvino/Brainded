@@ -75,6 +75,17 @@ test("degradation: semanticSearch throws a clear error when vector search is una
   db.close();
 });
 
+test("degradation: findSimilarPairs returns no pairs (not an error) when vector search is unavailable", async () => {
+  const db = openDatabase(":memory:");
+  const embeddings = new FakeEmbeddingProvider();
+  const repo = new SqliteMemoryRepository(db.raw, embeddings);
+  const a = await repo.create({ type: "fact", content: "alpha", scope: globalScope() });
+  const b = await repo.create({ type: "fact", content: "alpha again", scope: globalScope() });
+  const retrieval = new SqliteRetrievalStore(db.raw, embeddings, false);
+  assert.deepEqual(await retrieval.findSimilarPairs([a.id, b.id], 0), []);
+  db.close();
+});
+
 // P2-001: the shared RetrievalStore behavioural contract (@brain/test-fixtures),
 // identical to the body run against FakeRetrievalStore. Signal direction and
 // range are behaviour, so both implementations answer to the same tests.

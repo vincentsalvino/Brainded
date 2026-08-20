@@ -6,8 +6,10 @@ import {
   type MemoryRecord,
   type ScopeRef,
   type EmbeddingProvider,
+  type SimilarityPair,
   RetrievalQuerySchema,
   normalizeScores,
+  sortSimilarityPairs,
 } from "@brain/contracts";
 
 interface MemoryRow {
@@ -187,5 +189,33 @@ export class SqliteRetrievalStore implements RetrievalStore {
       record,
       signals: { semanticScore: scores[index] as number },
     }));
+  }
+
+  /**
+   * E25. Vectors never leave this method: the query computes cosine distance
+   * natively in SQLite via sqlite-vec and only scalar {a,b,similarity} triples
+   * cross back into JS. `memory_vectors` has no row for a memory whose
+   * embedding failed to index (see memory-repository.ts's indexVector) -- the
+   * inner join simply excludes it, which is the correct degradation (no
+   * similarity data means no pair, not an error).
+   */
+  async findSimilarPairs(memoryIds: string[], minSimilarity: number): Promise<SimilarityPair[]> {
+    const uniqueIds = [...new Set(memoryIds)];
+    if (!this.vectorSearchAvailable || uniqueIds.length < 2) return [];
+
+    const placeholders = uniqueIds.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(
+        `SELECT x.memory_id AS a, y.memory_id AS b, vec_distance_cosine(x.embedding, y.embedding) AS distance
+         FROM memory_vectors x
+         JOIN memory_vectors y ON x.memory_id < y.memory_id
+         WHERE x.memory_id IN (${placeholders}) AND y.memory_id IN (${placeholders})`,
+      )
+      .all(...uniqueIds, ...uniqueIds) as { a: string; b: string; distance: number }[];
+
+    const pairs: SimilarityPair[] = rows
+      .map((r) => ({ a: r.a, b: r.b, similarity: 1 - r.distance }))
+      .filter((p) => p.similarity >= minSimilarity);
+    return sortSimilarityPairs(pairs);
   }
 }

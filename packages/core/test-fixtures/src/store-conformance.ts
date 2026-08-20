@@ -214,4 +214,112 @@ export function runRetrievalStoreConformance(harness: ConformanceHarness): void 
       cleanup();
     }
   });
+
+  async function idOf(store: RetrievalStore, scope: ScopeRef, content: string): Promise<string> {
+    const results = await store.lexicalSearch({ text: content, scope, limit: 10 });
+    const match = results.find((r) => r.record.content === content);
+    if (!match) throw new Error(`conformance fixture setup: could not resolve memoryId for "${content}"`);
+    return match.memoryId;
+  }
+
+  test(label("findSimilarPairs: a near-duplicate pair scores strictly higher than an unrelated pair"), async () => {
+    const { store, cleanup } = await harness.setup([
+      { content: STRONG, scope: globalScope() },
+      { content: NEAR_DUPLICATE, scope: globalScope() },
+      { content: UNRELATED, scope: globalScope() },
+    ]);
+    try {
+      const strongId = await idOf(store, globalScope(), STRONG);
+      const nearId = await idOf(store, globalScope(), NEAR_DUPLICATE);
+      const unrelatedId = await idOf(store, globalScope(), UNRELATED);
+      const pairs = await store.findSimilarPairs([strongId, nearId, unrelatedId], 0);
+      const find = (x: string, y: string) => pairs.find((p) => (p.a === x && p.b === y) || (p.a === y && p.b === x));
+      const strongNear = find(strongId, nearId);
+      const strongUnrelated = find(strongId, unrelatedId);
+      assert.ok(strongNear, "the near-duplicate pair must be returned at threshold 0");
+      assert.ok(strongUnrelated, "the unrelated pair must be returned at threshold 0");
+      assert.ok(
+        (strongNear?.similarity ?? -2) > (strongUnrelated?.similarity ?? 2),
+        `near-duplicate similarity (${strongNear?.similarity}) must exceed the unrelated pair's (${strongUnrelated?.similarity})`,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test(label("findSimilarPairs: every similarity is within [-1, 1]"), async () => {
+    const { store, cleanup } = await harness.setup([
+      { content: STRONG, scope: globalScope() },
+      { content: NEAR_DUPLICATE, scope: globalScope() },
+      { content: UNRELATED, scope: globalScope() },
+    ]);
+    try {
+      const ids = await Promise.all([STRONG, NEAR_DUPLICATE, UNRELATED].map((c) => idOf(store, globalScope(), c)));
+      const pairs = await store.findSimilarPairs(ids, -1);
+      assert.ok(pairs.length > 0);
+      for (const p of pairs) {
+        assert.ok(Number.isFinite(p.similarity) && p.similarity >= -1 && p.similarity <= 1);
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test(label("findSimilarPairs: a threshold above every pair's similarity returns nothing"), async () => {
+    const { store, cleanup } = await harness.setup([
+      { content: STRONG, scope: globalScope() },
+      { content: NEAR_DUPLICATE, scope: globalScope() },
+    ]);
+    try {
+      const ids = await Promise.all([STRONG, NEAR_DUPLICATE].map((c) => idOf(store, globalScope(), c)));
+      assert.deepEqual(await store.findSimilarPairs(ids, 1.01), []);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test(label("findSimilarPairs: fewer than two ids never produces a pair"), async () => {
+    const { store, cleanup } = await harness.setup([{ content: STRONG, scope: globalScope() }]);
+    try {
+      const id = await idOf(store, globalScope(), STRONG);
+      assert.deepEqual(await store.findSimilarPairs([id], 0), []);
+      assert.deepEqual(await store.findSimilarPairs([], 0), []);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test(label("findSimilarPairs: never returns a pair naming an id outside the requested set"), async () => {
+    const { store, cleanup } = await harness.setup([
+      { content: STRONG, scope: globalScope() },
+      { content: NEAR_DUPLICATE, scope: globalScope() },
+      { content: UNRELATED, scope: globalScope() },
+    ]);
+    try {
+      const strongId = await idOf(store, globalScope(), STRONG);
+      const nearId = await idOf(store, globalScope(), NEAR_DUPLICATE);
+      const pairs = await store.findSimilarPairs([strongId, nearId], -1);
+      for (const p of pairs) {
+        assert.ok([strongId, nearId].includes(p.a) && [strongId, nearId].includes(p.b));
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test(label("findSimilarPairs: deterministic across repeated calls"), async () => {
+    const { store, cleanup } = await harness.setup([
+      { content: STRONG, scope: globalScope() },
+      { content: NEAR_DUPLICATE, scope: globalScope() },
+      { content: UNRELATED, scope: globalScope() },
+    ]);
+    try {
+      const ids = await Promise.all([STRONG, NEAR_DUPLICATE, UNRELATED].map((c) => idOf(store, globalScope(), c)));
+      const first = await store.findSimilarPairs(ids, -1);
+      const second = await store.findSimilarPairs(ids, -1);
+      assert.deepEqual(first, second);
+    } finally {
+      cleanup();
+    }
+  });
 }

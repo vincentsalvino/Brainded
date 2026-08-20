@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Canonical per-query normalization for retrieval signals (P2-002 / decision E2).
  *
@@ -33,4 +35,28 @@ export function normalizeScores(raw: number[]): number[] {
 
   const span = max - min;
   return raw.map((value) => (value - min) / span);
+}
+
+export const SimilarityPairSchema = z
+  .object({
+    a: z.string().uuid(),
+    b: z.string().uuid(),
+    similarity: z.number().min(-1).max(1),
+  })
+  .strict();
+export type SimilarityPair = z.infer<typeof SimilarityPairSchema>;
+
+/**
+ * Deterministic ordering for SimilarityPair[] (E25 requirement): similarity
+ * descending, then `a` ascending, then `b` ascending. Both RetrievalStore
+ * implementations must produce output in this order so a caller never has to
+ * re-sort, and so tests can assert exact array equality.
+ */
+export function sortSimilarityPairs(pairs: SimilarityPair[]): SimilarityPair[] {
+  return [...pairs].sort((x, y) => {
+    if (y.similarity !== x.similarity) return y.similarity - x.similarity;
+    if (x.a !== y.a) return x.a < y.a ? -1 : 1;
+    if (x.b !== y.b) return x.b < y.b ? -1 : 1;
+    return 0;
+  });
 }

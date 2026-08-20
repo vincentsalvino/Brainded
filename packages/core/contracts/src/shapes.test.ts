@@ -14,6 +14,7 @@ import {
   assertContextMembershipConsistent,
 } from "./events.js";
 import { globalScope } from "./scope.js";
+import { SimilarityPairSchema, sortSimilarityPairs } from "./signals.js";
 
 function baseMemoryRecord() {
   const now = new Date().toISOString();
@@ -323,4 +324,34 @@ test("P2-006: assertContextMembershipConsistent accepts agreeing forms and rejec
   assert.doesNotThrow(() =>
     assertContextMembershipConsistent({ includedMemoryIds: [a], omittedMemoryIds: [], memories: [] }),
   );
+});
+
+test("SimilarityPair: accepts a valid pair and rejects unrecognized fields", () => {
+  const a = randomUUID();
+  const b = randomUUID();
+  const valid = SimilarityPairSchema.parse({ a, b, similarity: 0.75 });
+  assert.equal(valid.similarity, 0.75);
+  assert.throws(() => SimilarityPairSchema.parse({ a, b, similarity: 0.75, extra: 1 }));
+});
+
+test("SimilarityPair: similarity must be within [-1, 1]", () => {
+  const a = randomUUID();
+  const b = randomUUID();
+  assert.throws(() => SimilarityPairSchema.parse({ a, b, similarity: 1.5 }));
+  assert.throws(() => SimilarityPairSchema.parse({ a, b, similarity: -1.5 }));
+});
+
+test("sortSimilarityPairs: orders by similarity descending, then a, then b ascending", () => {
+  const [x, y, z] = [randomUUID(), randomUUID(), randomUUID()].sort();
+  const input = [
+    { a: y as string, b: z as string, similarity: 0.5 },
+    { a: x as string, b: y as string, similarity: 0.9 },
+    { a: x as string, b: z as string, similarity: 0.9 },
+  ];
+  const sorted = sortSimilarityPairs(input);
+  assert.deepEqual(sorted.map((p) => [p.a, p.b]), [
+    [x, y],
+    [x, z],
+    [y, z],
+  ]);
 });

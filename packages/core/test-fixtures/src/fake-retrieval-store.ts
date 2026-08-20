@@ -1,5 +1,5 @@
-import type { RetrievalStore, RetrievalQuery, Candidate, MemoryRecord } from "@brain/contracts";
-import { scopeIncludes, normalizeScores } from "@brain/contracts";
+import type { RetrievalStore, RetrievalQuery, Candidate, MemoryRecord, SimilarityPair } from "@brain/contracts";
+import { scopeIncludes, normalizeScores, sortSimilarityPairs } from "@brain/contracts";
 
 function wordOverlap(text: string, terms: string[]): number {
   if (terms.length === 0) return 0;
@@ -10,6 +10,14 @@ function wordOverlap(text: string, terms: string[]): number {
 
 function termsOf(text: string): string[] {
   return text.toLowerCase().split(/\s+/).filter((t) => t.length > 0);
+}
+
+function jaccardSimilarity(a: string, b: string): number {
+  const wordsA = new Set(termsOf(a));
+  const wordsB = new Set(termsOf(b));
+  const intersection = [...wordsA].filter((w) => wordsB.has(w)).length;
+  const union = new Set([...wordsA, ...wordsB]).size;
+  return union === 0 ? 0 : intersection / union;
 }
 
 /**
@@ -81,5 +89,23 @@ export class FakeRetrievalStore implements RetrievalStore {
       record,
       signals: { semanticScore: scores[index] as number },
     }));
+  }
+
+  async findSimilarPairs(memoryIds: string[], minSimilarity: number): Promise<SimilarityPair[]> {
+    const uniqueIds = [...new Set(memoryIds)];
+    const records = uniqueIds
+      .map((id) => this.records.find((r) => r.id === id))
+      .filter((r): r is MemoryRecord => r !== undefined);
+
+    const pairs: SimilarityPair[] = [];
+    for (let i = 0; i < records.length; i++) {
+      for (let j = i + 1; j < records.length; j++) {
+        const a = records[i] as MemoryRecord;
+        const b = records[j] as MemoryRecord;
+        const similarity = jaccardSimilarity(a.content, b.content);
+        if (similarity >= minSimilarity) pairs.push({ a: a.id, b: b.id, similarity });
+      }
+    }
+    return sortSimilarityPairs(pairs);
   }
 }

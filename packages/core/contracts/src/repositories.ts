@@ -1,6 +1,7 @@
 import type { MemoryRecord, MemoryCreateInput, MemoryUpdateInput, MemoryQuery, MemoryResult } from "./memory.js";
 import type { ScopeRef } from "./scope.js";
 import type { RetrievalQuery, Candidate } from "./retrieval.js";
+import type { SimilarityPair } from "./signals.js";
 import type {
   RetrievalEvent,
   ContextEvent,
@@ -31,6 +32,13 @@ export interface MemoryRepository {
 export interface RetrievalStore {
   lexicalSearch(query: RetrievalQuery): Promise<Candidate[]>;
   semanticSearch(query: RetrievalQuery): Promise<Candidate[]>;
+  /**
+   * E25: pairwise similarity over an ALREADY scope-authorized set of memory
+   * ids. Never returns a pair naming an id outside `memoryIds` -- this
+   * function must not be able to widen scope, because it never receives one.
+   * Vectors unavailable -> empty array, never a thrown error.
+   */
+  findSimilarPairs(memoryIds: string[], minSimilarity: number): Promise<SimilarityPair[]>;
 }
 
 export interface TaskEvents {
