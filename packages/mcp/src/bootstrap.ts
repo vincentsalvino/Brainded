@@ -6,7 +6,7 @@ import { LocalEmbeddingProvider } from "@brain/storage";
 import { MemoryService } from "@brain/memory";
 import { RetrievalService } from "@brain/retrieval";
 import { EventService } from "@brain/learning";
-import { Gateway } from "@brain/gateway";
+import { Gateway, DEFAULT_REDUNDANCY_THRESHOLD } from "@brain/gateway";
 
 /**
  * The ONE file in this repository allowed to import both a concrete
@@ -35,6 +35,8 @@ export function createBrain(dbPath: string): Brain {
     new RetrievalService(retrievalStore),
     new EventService(eventStore),
     { vectorSearchAvailable: db.vectorSearchAvailable },
+    // 2C: machinery in place, disabled pending Task 8's evaluation result.
+    { enabled: false, threshold: DEFAULT_REDUNDANCY_THRESHOLD },
   );
 
   return { gateway, close: () => db.close() };

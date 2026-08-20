@@ -8,7 +8,10 @@ import { EventService } from "@brain/learning";
 import { Gateway } from "./gateway.js";
 import { BrainError } from "./errors.js";
 
-function setup(seedRecords: ReturnType<typeof buildMemoryRecord>[] = []) {
+function setup(
+  seedRecords: ReturnType<typeof buildMemoryRecord>[] = [],
+  redundancy?: { enabled: boolean; threshold: number },
+) {
   const eventStore = new FakeEventStore();
   const memoryRepo = new FakeMemoryRepository(eventStore);
   const retrievalStore = new FakeRetrievalStore(seedRecords);
@@ -17,6 +20,7 @@ function setup(seedRecords: ReturnType<typeof buildMemoryRecord>[] = []) {
     new RetrievalService(retrievalStore),
     new EventService(eventStore),
     { vectorSearchAvailable: true },
+    redundancy,
   );
   return { gateway, memoryRepo, retrievalStore, eventStore };
 }
@@ -435,4 +439,69 @@ test("P2-005: taskId, when supplied, is preserved alongside contextId on every e
   assert.equal(eventStore.retrievalEvents[0]?.taskId, "logical-task-7");
   assert.equal(eventStore.contextEvents[0]?.taskId, "logical-task-7");
   assert.equal(eventStore.contextEvents[0]?.id, delivery.contextId);
+});
+
+// --- 2C-004/005: redundancy wiring and degradation -------------------------
+
+test("redundancy disabled by default: getContext output carries no redundantWith marks", async () => {
+  const projectRule = buildMemoryRecord({ content: "notes-api uses plural resource names", scope: projectScope("notes-api") });
+  const globalRule = buildMemoryRecord({ content: "REST resources use plural nouns in endpoint paths", scope: globalScope() });
+  const { gateway } = setup([projectRule, globalRule]); // no redundancy arg -> Gateway's own default (disabled)
+  const delivery = await gateway.getContext({ task: "notes-api uses plural resource names", scope: projectScope("notes-api"), budget: { maxTokens: 2000 } });
+  for (const item of delivery.items) assert.equal("redundantWith" in item, false);
+});
+
+// STRONG/NEAR_DUPLICATE content reused verbatim from
+// core/test-fixtures/store-conformance.ts -- spiked and confirmed their
+// Jaccard word-overlap similarity is 0.2105 under FakeRetrievalStore, so
+// threshold 0.15 reliably catches this specific pair with margin.
+test("redundancy enabled: a near-duplicate lower-ranked candidate is marked redundantWith under an ample budget", async () => {
+  const strong = buildMemoryRecord({
+    content: "notes-api: database access must go through the repository layer, never directly from route handlers",
+    scope: projectScope("notes-api"),
+    confidence: 1,
+  });
+  const nearDuplicate = buildMemoryRecord({
+    content: "the repository pattern abstracts database access behind an interface",
+    scope: projectScope("notes-api"),
+    confidence: 1,
+  });
+  const { gateway } = setup([strong, nearDuplicate], { enabled: true, threshold: 0.15 });
+  const delivery = await gateway.getContext({
+    task: "database access repository pattern",
+    scope: projectScope("notes-api"),
+    budget: { maxTokens: 2000 }, // ample -- isolates "is redundancy wired" from budget selection, which Task 8 covers
+  });
+  assert.equal(delivery.items.length, 2, "ample budget: both items still delivered -- demoted, not deleted");
+  assert.ok(
+    delivery.items.some((i) => i.redundantWith !== undefined),
+    "the lower-ranked near-duplicate must be marked redundantWith when redundancy is enabled",
+  );
+});
+
+class ThrowingRetrievalStore extends FakeRetrievalStore {
+  override async findSimilarPairs(): Promise<never> {
+    throw new Error("simulated findSimilarPairs failure");
+  }
+}
+
+test("redundancy degradation: a store that throws on findSimilarPairs never fails the request", async () => {
+  // Two matching records, not one: RetrievalService.getRedundancyPairs short-circuits
+  // to [] (never touching the store) when rankedResults.length < 2, so a single-record
+  // seed would let this test pass without the throwing store's findSimilarPairs ever
+  // being called -- exercising nothing.
+  const recordA = buildMemoryRecord({ content: "anything", scope: globalScope() });
+  const recordB = buildMemoryRecord({ content: "anything similar", scope: globalScope() });
+  const eventStore = new FakeEventStore();
+  const memoryRepo = new FakeMemoryRepository(eventStore);
+  const retrievalStore = new ThrowingRetrievalStore([recordA, recordB]);
+  const gateway = new Gateway(
+    new MemoryService(memoryRepo),
+    new RetrievalService(retrievalStore),
+    new EventService(eventStore),
+    { vectorSearchAvailable: true },
+    { enabled: true, threshold: 0.5 },
+  );
+  const delivery = await gateway.getContext({ task: "anything", scope: globalScope(), budget: { maxTokens: 500 } });
+  assert.ok(delivery.items.length > 0);
 });

@@ -7,6 +7,7 @@ import {
   type ContextPack,
   type FeedbackEvent,
   type OutcomeEvent,
+  type SimilarityPair,
 } from "@brain/contracts";
 import type { MemoryService } from "@brain/memory";
 import type { RetrievalService } from "@brain/retrieval";
@@ -34,6 +35,15 @@ const DEFAULT_CANDIDATE_LIMIT = 50;
 const PROJECT_COUNT_LIMIT = 500;
 
 /**
+ * 2C-004. NOT a statistically fit value -- the one real datapoint
+ * (PHASE_2_FINDINGS.md 5) puts the known redundant pair at cosine 0.785 with
+ * the next-nearest distinct memory at 0.518. 0.75 gives margin below the
+ * former and above the latter. Adjustable; see docs/PHASE_2C_FINDINGS.md for
+ * the threshold sweep this default is informed by.
+ */
+export const DEFAULT_REDUNDANCY_THRESHOLD = 0.75;
+
+/**
  * The Brain Gateway: exposes the 10 stable brain_* capabilities, orchestrates
  * Core services into them, and stays completely independent of any transport
  * (ARCHITECTURE.md 6, this task's Step 7). packages/mcp is one possible caller;
@@ -57,6 +67,14 @@ export class Gateway {
     private readonly retrieval: RetrievalService,
     private readonly events: EventService,
     private readonly capabilities: { vectorSearchAvailable: boolean },
+    // 2C-005. Disabled by default: with this flag off, getContext() output is
+    // byte-identical to Phase 2B (the no-redundancy regression at the
+    // production default, not just as a below-threshold edge case). Ship
+    // disabled until Task 8's evaluation justifies enabling it.
+    private readonly redundancy: { enabled: boolean; threshold: number } = {
+      enabled: false,
+      threshold: DEFAULT_REDUNDANCY_THRESHOLD,
+    },
   ) {}
 
   /** brain_context: the full retrieval -> ranking -> context -> budget pipeline. */
@@ -80,8 +98,20 @@ export class Gateway {
     const rankedResults: RankedResult[] = rank({ candidates, task: request.task });
     const rankingMs = performance.now() - rankingStart;
 
+    // 2C-004/005: redundancy pairs, computed only when enabled. A failure
+    // here degrades to "no pairs" -- the same discipline as vector-search
+    // unavailability elsewhere in this pipeline -- never a failed request.
+    let redundancyPairs: SimilarityPair[] = [];
+    if (this.redundancy.enabled) {
+      try {
+        redundancyPairs = await this.retrieval.getRedundancyPairs(rankedResults, this.redundancy.threshold);
+      } catch (error) {
+        console.warn("brain_context: redundancy detection failed, continuing without it:", error);
+      }
+    }
+
     const compileStart = performance.now();
-    const compiledContext = compileContext({ task: request.task, scope: request.scope, rankedResults });
+    const compiledContext = compileContext({ task: request.task, scope: request.scope, rankedResults, redundancyPairs });
     const compileMs = performance.now() - compileStart;
 
     const optimizeStart = performance.now();
