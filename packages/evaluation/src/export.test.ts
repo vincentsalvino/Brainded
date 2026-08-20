@@ -115,7 +115,7 @@ test("exportFromEvents: a pre-migration context event (empty memories[]) is skip
   assert.deepEqual(await exportFromEvents(events, memories), []);
 });
 
-test("exportFromEvents: a memory archived/purged since delivery is skipped rather than fabricated", async () => {
+test("exportFromEvents: a memory purged (hard-deleted) since delivery is skipped rather than fabricated", async () => {
   const { events, memories } = await scenario();
   const mem = await memories.create({ type: "rule", content: "x", scope: globalScope() });
   await memories.purge(mem.id, globalScope());
@@ -127,6 +127,24 @@ test("exportFromEvents: a memory archived/purged since delivery is skipped rathe
     candidateCount: 1, candidateTokenCount: 5, retrievalMs: 1, rankingMs: 1, compileMs: 1, optimizeMs: 1,
   });
   assert.deepEqual(await exportFromEvents(events, memories), []);
+});
+
+test("exportFromEvents: an archived (soft-deleted) memory is still exported with its label intact -- archiving is not deletion", async () => {
+  const { events, memories } = await scenario();
+  const mem = await memories.create({ type: "rule", content: "x", scope: globalScope() });
+  const retrieval = await events.recordRetrieval({ scope: globalScope(), queryText: "q", candidateIds: [mem.id], taskId: null });
+  const context = await events.recordContext({
+    retrievalEventId: retrieval.id, scope: globalScope(), taskId: null,
+    includedMemoryIds: [mem.id], omittedMemoryIds: [], tokenCount: 5,
+    memories: [{ memoryId: mem.id, included: true, rank: 1, tokenCount: 5 }],
+    candidateCount: 1, candidateTokenCount: 5, retrievalMs: 1, rankingMs: 1, compileMs: 1, optimizeMs: 1,
+  });
+  await events.recordFeedback({ memoryId: mem.id, taskId: null, contextId: context.id, useful: true, reason: null, notes: null });
+  await memories.archive(mem.id, globalScope());
+
+  const [example] = await exportFromEvents(events, memories);
+  assert.ok(example, "an archived-but-not-purged memory is still replayable");
+  assert.equal(example.labels[mem.id], 2, "the historical judgment survives archiving");
 });
 
 test("exportFromEvents: `since` excludes context events before the given timestamp", async () => {
