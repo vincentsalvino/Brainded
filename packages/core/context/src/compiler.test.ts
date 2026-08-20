@@ -1,11 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { globalScope, projectScope, type RankedResult } from "@brain/contracts";
 import { buildMemoryRecord } from "@brain/test-fixtures";
 import { compileContext } from "./compiler.js";
 
-function rankedResult(overrides: Partial<RankedResult> = {}, recordOverrides: Record<string, unknown> = {}): RankedResult {
+function rankedResult(overrides?: Partial<RankedResult>, recordOverrides?: Record<string, unknown>): RankedResult;
+function rankedResult(opts: { content: string; rank: number; confidence?: number }): RankedResult;
+function rankedResult(arg1?: any, arg2?: Record<string, unknown>): RankedResult {
+  // Handle new signature: { content, rank, confidence? }
+  if (arg1 && 'content' in arg1 && 'rank' in arg1 && typeof arg1.content === 'string' && typeof arg1.rank === 'number') {
+    const record = buildMemoryRecord({ content: arg1.content, confidence: arg1.confidence ?? 0.5 });
+    return { memoryId: record.id, record, score: 1 / arg1.rank, signals: { diversity: null }, rank: arg1.rank };
+  }
+  // Handle original signature: (overrides, recordOverrides)
+  const overrides = arg1 ?? {};
+  const recordOverrides = arg2 ?? {};
   const memoryId = (recordOverrides.id as string) ?? randomUUID();
   return {
     memoryId,
@@ -194,4 +207,67 @@ test("boundary: is NOT a retrieval layer -- compileContext is a plain function w
   // see package.json (no @brain/storage dependency) for the compile-time guarantee.
   const compiled = compileContext(input([rankedResult({ rank: 1 })]));
   assert.equal(compiled.items.length, 1);
+});
+
+// --- Step 2C: redundancy demotion -----------------------------------------
+
+test("redundancy: a redundant item is marked and moved after all non-redundant items", () => {
+  const a = rankedResult({ content: "project rule", rank: 1 });
+  const b = rankedResult({ content: "global rule", rank: 2 });
+  const c = rankedResult({ content: "distinct rule", rank: 3 });
+  const result = compileContext({
+    task: "t",
+    scope: globalScope(),
+    rankedResults: [a, b, c],
+    redundancyPairs: [{ a: a.memoryId, b: b.memoryId, similarity: 0.9 }],
+  });
+  assert.deepEqual(result.items.map((i) => i.memoryId), [a.memoryId, c.memoryId, b.memoryId]);
+  assert.equal(result.items.find((i) => i.memoryId === b.memoryId)?.redundantWith, a.memoryId);
+  assert.equal("redundantWith" in (result.items.find((i) => i.memoryId === a.memoryId) ?? {}), false);
+});
+
+test("redundancy: relative order is preserved within each group", () => {
+  const a = rankedResult({ content: "1", rank: 1 });
+  const b = rankedResult({ content: "2", rank: 2 });
+  const c = rankedResult({ content: "3", rank: 3 });
+  const d = rankedResult({ content: "4", rank: 4 });
+  const result = compileContext({
+    task: "t",
+    scope: globalScope(),
+    rankedResults: [a, b, c, d],
+    redundancyPairs: [
+      { a: a.memoryId, b: b.memoryId, similarity: 0.9 },
+      { a: c.memoryId, b: d.memoryId, similarity: 0.9 },
+    ],
+  });
+  assert.deepEqual(result.items.map((i) => i.memoryId), [a.memoryId, c.memoryId, b.memoryId, d.memoryId]);
+});
+
+test("redundancy: absent redundancyPairs produces byte-identical output to Phase 2B (no reordering, no redundantWith)", () => {
+  const a = rankedResult({ content: "1", rank: 1 });
+  const b = rankedResult({ content: "2", rank: 2 });
+  const withField = compileContext({ task: "t", scope: globalScope(), rankedResults: [a, b] });
+  const withoutField = compileContext({ task: "t", scope: globalScope(), rankedResults: [a, b], redundancyPairs: [] });
+  assert.deepEqual(withField, withoutField);
+  for (const item of withField.items) assert.equal("redundantWith" in item, false);
+});
+
+test("redundancy: a pair naming a memoryId dropped by dedup is ignored, not a crash", () => {
+  const a = rankedResult({ content: "same text", rank: 1 });
+  const dup = rankedResult({ content: "same text", rank: 2 }); // exact-content dup of `a`, removed by existing dedup
+  const b = rankedResult({ content: "other text", rank: 3 });
+  const result = compileContext({
+    task: "t",
+    scope: globalScope(),
+    rankedResults: [a, dup, b],
+    redundancyPairs: [{ a: dup.memoryId, b: b.memoryId, similarity: 0.9 }], // dup.memoryId no longer survives
+  });
+  assert.equal(result.duplicatesRemoved, 1);
+  assert.deepEqual(result.items.map((i) => i.memoryId).sort(), [a.memoryId, b.memoryId].sort());
+  for (const item of result.items) assert.equal("redundantWith" in item, false);
+});
+
+test("redundancy: structural purity -- package.json still declares no embedding/storage dependency", async () => {
+  const pkg = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf-8"));
+  assert.deepEqual(Object.keys(pkg.dependencies), ["@brain/contracts"]);
 });

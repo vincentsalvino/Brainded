@@ -20,17 +20,31 @@ import { CompileContextInputSchema, type CompileContextInput, type CompiledConte
  * to get wrong and was not asked for).
  *
  * Ordering: rankedResults arrives already sorted by P1-009; this function
- * iterates in that order and never re-sorts. No grouping/sectioning is applied
- * -- every item already carries `type`, so a consumer can group however it
- * wants without the Brain baking one particular grouping in (Step 7: "do not
- * create sections merely because they sound useful").
+ * iterates in that order and never re-sorts, except for redundancy demotion
+ * (P2C-005): items marked as redundant via redundancyPairs are moved to the end
+ * of the output array, after all non-redundant items, preserving relative order
+ * within each group. No grouping/sectioning is applied -- every item already
+ * carries `type`, so a consumer can group however it wants without the Brain
+ * baking one particular grouping in (Step 7: "do not create sections merely
+ * because they sound useful").
  */
 export function compileContext(rawInput: CompileContextInput): CompiledContext {
   const input = CompileContextInputSchema.parse(rawInput);
 
   const seenContent = new Set<string>();
-  const items: ContextItem[] = [];
+  const keptMemoryIds = new Set<string>();
+  const nonRedundant: ContextItem[] = [];
+  const redundant: ContextItem[] = [];
   let duplicatesRemoved = 0;
+
+  // 2C-005: memoryId -> the higher-ranked memoryId it duplicates. Built before
+  // the main loop so membership can be checked in one pass. A pair naming a
+  // memoryId that gets dropped by dedup below, or that was never a candidate
+  // here at all, simply never matches -- no special-casing needed.
+  const redundantWithById = new Map<string, string>();
+  for (const pair of input.redundancyPairs ?? []) {
+    redundantWithById.set(pair.b, pair.a);
+  }
 
   for (const ranked of input.rankedResults) {
     if (seenContent.has(ranked.record.content)) {
@@ -38,8 +52,9 @@ export function compileContext(rawInput: CompileContextInput): CompiledContext {
       continue;
     }
     seenContent.add(ranked.record.content);
+    keptMemoryIds.add(ranked.memoryId);
 
-    items.push({
+    const item: ContextItem = {
       memoryId: ranked.memoryId,
       content: ranked.record.content,
       type: ranked.record.type,
@@ -51,8 +66,15 @@ export function compileContext(rawInput: CompileContextInput): CompiledContext {
       rank: ranked.rank,
       // Always false here -- P1-010 never compresses. Reserved for P1-011.
       wasCompressed: false,
-    });
+    };
+
+    const redundantWith = redundantWithById.get(ranked.memoryId);
+    if (redundantWith !== undefined && keptMemoryIds.has(redundantWith)) {
+      redundant.push({ ...item, redundantWith });
+    } else {
+      nonRedundant.push(item);
+    }
   }
 
-  return { items, duplicatesRemoved };
+  return { items: [...nonRedundant, ...redundant], duplicatesRemoved };
 }
