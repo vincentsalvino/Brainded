@@ -38,9 +38,11 @@ export function compileContext(rawInput: CompileContextInput): CompiledContext {
   let duplicatesRemoved = 0;
 
   // 2C-005: memoryId -> the higher-ranked memoryId it duplicates. Built before
-  // the main loop so membership can be checked in one pass. A pair naming a
-  // memoryId that gets dropped by dedup below, or that was never a candidate
-  // here at all, simply never matches -- no special-casing needed.
+  // the main loop so membership can be checked in one pass. The redundancy
+  // marking is gated on keptMemoryIds.has(redundantWith) below: if a pair's
+  // reference target (the `a` side) is dropped by content-dedup before the
+  // redundant item (the `b` side) is reached, the redundant marking must not
+  // apply, since the reference no longer exists in the output.
   const redundantWithById = new Map<string, string>();
   for (const pair of input.redundancyPairs ?? []) {
     redundantWithById.set(pair.b, pair.a);

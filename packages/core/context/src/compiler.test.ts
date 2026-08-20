@@ -8,17 +8,7 @@ import { globalScope, projectScope, type RankedResult } from "@brain/contracts";
 import { buildMemoryRecord } from "@brain/test-fixtures";
 import { compileContext } from "./compiler.js";
 
-function rankedResult(overrides?: Partial<RankedResult>, recordOverrides?: Record<string, unknown>): RankedResult;
-function rankedResult(opts: { content: string; rank: number; confidence?: number }): RankedResult;
-function rankedResult(arg1?: any, arg2?: Record<string, unknown>): RankedResult {
-  // Handle new signature: { content, rank, confidence? }
-  if (arg1 && 'content' in arg1 && 'rank' in arg1 && typeof arg1.content === 'string' && typeof arg1.rank === 'number') {
-    const record = buildMemoryRecord({ content: arg1.content, confidence: arg1.confidence ?? 0.5 });
-    return { memoryId: record.id, record, score: 1 / arg1.rank, signals: { diversity: null }, rank: arg1.rank };
-  }
-  // Handle original signature: (overrides, recordOverrides)
-  const overrides = arg1 ?? {};
-  const recordOverrides = arg2 ?? {};
+function rankedResult(overrides: Partial<RankedResult> = {}, recordOverrides: Record<string, unknown> = {}): RankedResult {
   const memoryId = (recordOverrides.id as string) ?? randomUUID();
   return {
     memoryId,
@@ -212,9 +202,9 @@ test("boundary: is NOT a retrieval layer -- compileContext is a plain function w
 // --- Step 2C: redundancy demotion -----------------------------------------
 
 test("redundancy: a redundant item is marked and moved after all non-redundant items", () => {
-  const a = rankedResult({ content: "project rule", rank: 1 });
-  const b = rankedResult({ content: "global rule", rank: 2 });
-  const c = rankedResult({ content: "distinct rule", rank: 3 });
+  const a = rankedResult({ rank: 1 }, { content: "project rule" });
+  const b = rankedResult({ rank: 2 }, { content: "global rule" });
+  const c = rankedResult({ rank: 3 }, { content: "distinct rule" });
   const result = compileContext({
     task: "t",
     scope: globalScope(),
@@ -227,10 +217,10 @@ test("redundancy: a redundant item is marked and moved after all non-redundant i
 });
 
 test("redundancy: relative order is preserved within each group", () => {
-  const a = rankedResult({ content: "1", rank: 1 });
-  const b = rankedResult({ content: "2", rank: 2 });
-  const c = rankedResult({ content: "3", rank: 3 });
-  const d = rankedResult({ content: "4", rank: 4 });
+  const a = rankedResult({ rank: 1 }, { content: "1" });
+  const b = rankedResult({ rank: 2 }, { content: "2" });
+  const c = rankedResult({ rank: 3 }, { content: "3" });
+  const d = rankedResult({ rank: 4 }, { content: "4" });
   const result = compileContext({
     task: "t",
     scope: globalScope(),
@@ -244,8 +234,8 @@ test("redundancy: relative order is preserved within each group", () => {
 });
 
 test("redundancy: absent redundancyPairs produces byte-identical output to Phase 2B (no reordering, no redundantWith)", () => {
-  const a = rankedResult({ content: "1", rank: 1 });
-  const b = rankedResult({ content: "2", rank: 2 });
+  const a = rankedResult({ rank: 1 }, { content: "1" });
+  const b = rankedResult({ rank: 2 }, { content: "2" });
   const withField = compileContext({ task: "t", scope: globalScope(), rankedResults: [a, b] });
   const withoutField = compileContext({ task: "t", scope: globalScope(), rankedResults: [a, b], redundancyPairs: [] });
   assert.deepEqual(withField, withoutField);
@@ -253,9 +243,9 @@ test("redundancy: absent redundancyPairs produces byte-identical output to Phase
 });
 
 test("redundancy: a pair naming a memoryId dropped by dedup is ignored, not a crash", () => {
-  const a = rankedResult({ content: "same text", rank: 1 });
-  const dup = rankedResult({ content: "same text", rank: 2 }); // exact-content dup of `a`, removed by existing dedup
-  const b = rankedResult({ content: "other text", rank: 3 });
+  const a = rankedResult({ rank: 1 }, { content: "same text" });
+  const dup = rankedResult({ rank: 2 }, { content: "same text" }); // exact-content dup of `a`, removed by existing dedup
+  const b = rankedResult({ rank: 3 }, { content: "other text" });
   const result = compileContext({
     task: "t",
     scope: globalScope(),
