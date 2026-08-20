@@ -1,9 +1,12 @@
 /**
  * 2C-001. Pure token/context efficiency metrics, computed from Phase 2B's
  * already-stored measurements -- no re-estimation with a different
- * tokenizer. Deliberately generic over the SOURCE of each item's label: both
- * a live pipeline run (Task 8) and exportFromEvents-derived real data
- * (Task 7) build DeliveredItemMeasurement[] and feed this same function.
+ * tokenizer. Deliberately generic over the SOURCE of DeliveredItemMeasurement[]:
+ * this function only consumes the array, never how it was built. Task 8's
+ * live pipeline run is the one source currently wired up; exportFromEvents
+ * (Task 7) does not yet carry per-item token counts onto
+ * EvalExample/EvalMemory, so it cannot feed this function today -- see
+ * docs/PHASE_2C_FINDINGS.md RISKS.
  *
  * "redundant" is its own label, never folded into "not_useful": a memory
  * flagged redundant is not evidence it is wrong (PHASE_2C_SPEC.md 2C-002),

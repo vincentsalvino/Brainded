@@ -603,6 +603,13 @@ Phase 2A/2B tests remaining green (350/350, this section).
   reconstructed from historical `FeedbackEvent`s (no structured target field). Any future analysis
   wanting real historical redundancy-feedback correlation would need a schema change first.
   Out of scope for Phase 2C by design.
+- **`exportFromEvents` output cannot feed `computeEfficiencyMetrics`**: `ContextEventMemory.tokenCount`
+  and `ContextEvent.candidateTokenCount` (both written by `gateway.ts` at delivery time) are never
+  carried onto `EvalExample`/`EvalMemory` by `exportFromEvents`, so `redundantRatio`/
+  `contextEfficiency` can currently only be measured from a live in-process pipeline run (Task 8's
+  path), never reconstructed from historical event data (Task 7's path) -- the two halves of
+  2C-001's acceptance criterion have not been joined. Carrying those fields through is the
+  prerequisite for ever doing so, and is out of scope for this phase.
 - **Small-N threshold calibration**: `DEFAULT_REDUNDANCY_THRESHOLD = 0.75` is now informed by two
   independent real-model corpus points (original `PHASE_2_FINDINGS.md` example, and this task's
   Step 1 integration test) rather than one -- still not a statistically fit value. Per spec, this is
@@ -612,10 +619,13 @@ Phase 2A/2B tests remaining green (350/350, this section).
   separate network-enabled job runs `test:integration` explicitly. A sandboxed/offline CI run will
   simply never exercise this test, which is by design, but means the real-model claim is not
   continuously re-verified without a deliberate second job.
-- **Redundancy ships disabled**: no risk to current production behavior (`GLOBAL MEMORY
-  REGRESSION`/`VECTOR-DEGRADATION RESULT` confirm the disabled path is byte-identical to A′), but
-  the C′ efficiency win (`TOKEN/CONTEXT EFFICIENCY COMPARISON`) is therefore not yet realized in
-  production either, pending the decision in `RECOMMENDED NEXT PHASE`.
+- **Redundancy ships disabled**: no risk to current production behavior -- confirmed by
+  `compiler.test.ts`'s `"redundancy: absent redundancyPairs produces byte-identical output to Phase
+  2B (no reordering, no redundantWith)"`, `gateway.test.ts`'s `"redundancy disabled by default:
+  getContext output carries no redundantWith marks"`, and `redundancy-gate.test.ts`'s
+  `"no-redundancy regression: a below-threshold example produces byte-identical compiled output
+  between A' and C'"` -- but the C′ efficiency win (`TOKEN/CONTEXT EFFICIENCY COMPARISON`) is
+  therefore not yet realized in production either, pending the decision in `RECOMMENDED NEXT PHASE`.
 
 ## LEARNING READINESS
 

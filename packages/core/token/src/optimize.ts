@@ -5,14 +5,19 @@ import { estimateTokens } from "./estimator.js";
 /**
  * The one and only token-budget enforcement point in the Brain (PHASE_1_SPEC.md
  * Token Budgeting). Consumes core/context's CompiledContext (already
- * deduplicated, already in rank order) and a budget; produces the final
- * ContextPack -- the only artifact that ever reaches an agent.
+ * deduplicated, items in the order core/context emitted them: rank order,
+ * EXCEPT that redundant items are moved to the end per 2C-005's demotion --
+ * exactly what makes a redundant item lose the budget race first, below) and
+ * a budget; produces the final ContextPack -- the only artifact that ever
+ * reaches an agent.
  *
- * Two-pass greedy fill, both passes in rank order:
+ * Two-pass greedy fill, both passes in CompiledContext.items' array order
+ * (rank order, except redundant items trail per 2C-005's demotion -- see
+ * above):
  *
- *   Pass 1 -- include everything that fits AS-IS, in rank order.
+ *   Pass 1 -- include everything that fits AS-IS, in that array order.
  *   Pass 2 -- for whatever didn't fit in pass 1, try compressing it into
- *             whatever budget is left, still in original rank order.
+ *             whatever budget is left, still in that same array order.
  *
  * Natural fits always claim their space first; compression only ever spends
  * what's LEFT OVER after that. This two-pass split exists specifically to
@@ -51,7 +56,7 @@ export function optimizeContext(
   const unfitted: { item: ContextItem; cost: number | null }[] = [];
   let tokenCount = 0;
 
-  // Pass 1: natural fits, in rank order.
+  // Pass 1: natural fits, in array order (rank order, redundant items trailing).
   for (const item of compiledContext.items) {
     const remaining = budget.maxTokens - tokenCount;
     if (remaining <= 0) {
@@ -79,7 +84,7 @@ export function optimizeContext(
   }
 
   // Pass 2: compression attempts against whatever budget pass 1 left behind,
-  // still in original rank order.
+  // still in the same array order.
   let omittedCount = 0;
   for (const { item, cost } of unfitted) {
     const remaining = budget.maxTokens - tokenCount;

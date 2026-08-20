@@ -38,14 +38,17 @@ export function compileContext(rawInput: CompileContextInput): CompiledContext {
   let duplicatesRemoved = 0;
 
   // 2C-005: memoryId -> the higher-ranked memoryId it duplicates. Built before
-  // the main loop so membership can be checked in one pass. The redundancy
-  // marking is gated on keptMemoryIds.has(redundantWith) below: if a pair's
-  // reference target (the `a` side) is dropped by content-dedup before the
-  // redundant item (the `b` side) is reached, the redundant marking must not
-  // apply, since the reference no longer exists in the output.
+  // the main loop so membership can be checked in one pass. Pairs arrive
+  // similarity-descending (sortSimilarityPairs); first write wins so a memory
+  // redundant with more than one other points at its STRONGEST match, not
+  // whichever pair happened to be processed last. The redundancy marking is
+  // gated on keptMemoryIds.has(redundantWith) below: if a pair's reference
+  // target (the `a` side) is dropped by content-dedup before the redundant
+  // item (the `b` side) is reached, the redundant marking must not apply,
+  // since the reference no longer exists in the output.
   const redundantWithById = new Map<string, string>();
   for (const pair of input.redundancyPairs ?? []) {
-    redundantWithById.set(pair.b, pair.a);
+    if (!redundantWithById.has(pair.b)) redundantWithById.set(pair.b, pair.a);
   }
 
   for (const ranked of input.rankedResults) {
