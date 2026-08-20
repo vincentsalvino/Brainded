@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ScopeRefSchema } from "./scope.js";
 import { MEMORY_TYPES, ProvenanceSchema } from "./memory.js";
 import { RankedResultSchema } from "./retrieval.js";
+import { SimilarityPairSchema } from "./signals.js";
 
 export const TokenBudgetSchema = z
   .object({
@@ -42,6 +43,10 @@ export const ContextItemSchema = z
     score: z.number(),
     rank: z.number().int().positive(),
     wasCompressed: z.boolean(),
+    // 2C-005 (E10/E25). Absent = normal/non-marked. Points only to another
+    // memoryId within the SAME compileContext() call's candidate set -- never
+    // an authorization signal, never persisted onto MemoryRecord.
+    redundantWith: z.string().uuid().optional(),
   })
   .strict();
 export type ContextItem = z.infer<typeof ContextItemSchema>;
@@ -71,6 +76,10 @@ export const CompileContextInputSchema = z
     scope: ScopeRefSchema,
     rankedResults: z.array(RankedResultSchema),
     agentCapabilities: z.array(z.string().min(1)).optional(),
+    // 2C-004/005. Produced by core/retrieval's redundancy-pair computation
+    // (which has store access); consumed here by the still-pure compiler.
+    // Absent -> Phase 2B behavior exactly.
+    redundancyPairs: z.array(SimilarityPairSchema).optional(),
   })
   .strict();
 export type CompileContextInput = z.infer<typeof CompileContextInputSchema>;

@@ -355,3 +355,31 @@ test("sortSimilarityPairs: orders by similarity descending, then a, then b ascen
     [y, z],
   ]);
 });
+
+// --- 2C-005: Context redundancy contracts ---------------------------------
+
+test("ContextItem: redundantWith is optional and, when present, must be a uuid", () => {
+  const base = { memoryId: randomUUID(), content: "x", type: "fact" as const, domain: null, scope: globalScope(), source: { origin: "system" as const }, confidence: 0.5, score: 1, rank: 1, wasCompressed: false };
+  const withoutIt = ContextItemSchema.parse(base);
+  assert.equal("redundantWith" in withoutIt, false);
+  const withIt = ContextItemSchema.parse({ ...base, redundantWith: randomUUID() });
+  assert.ok(typeof withIt.redundantWith === "string");
+  assert.throws(() => ContextItemSchema.parse({ ...base, redundantWith: "not-a-uuid" }));
+});
+
+test("CompileContextInput: redundancyPairs is optional and defaults to absent", () => {
+  const input = CompileContextInputSchema.parse({ task: "t", scope: globalScope(), rankedResults: [] });
+  assert.equal("redundancyPairs" in input, false);
+});
+
+test("CompileContextInput: redundancyPairs accepts a valid SimilarityPair array", () => {
+  const a = randomUUID();
+  const b = randomUUID();
+  const input = CompileContextInputSchema.parse({
+    task: "t",
+    scope: globalScope(),
+    rankedResults: [],
+    redundancyPairs: [{ a, b, similarity: 0.8 }],
+  });
+  assert.equal(input.redundancyPairs?.length, 1);
+});
