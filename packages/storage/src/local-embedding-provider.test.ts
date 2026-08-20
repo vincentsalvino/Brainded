@@ -45,43 +45,47 @@ test(
   },
 );
 
-test("integration: findSimilarPairs detects the known real-world redundant pair with the real embedding model", async () => {
-  const db = openDatabase(":memory:");
-  const embeddings = new LocalEmbeddingProvider();
-  const repo = new SqliteMemoryRepository(db.raw, embeddings);
-  const store = new SqliteRetrievalStore(db.raw, embeddings, db.vectorSearchAvailable);
+test(
+  "integration: findSimilarPairs detects the known real-world redundant pair with the real embedding model",
+  { timeout: 120_000 },
+  async () => {
+    const db = openDatabase(":memory:");
+    const embeddings = new LocalEmbeddingProvider();
+    const repo = new SqliteMemoryRepository(db.raw, embeddings);
+    const store = new SqliteRetrievalStore(db.raw, embeddings, db.vectorSearchAvailable);
 
-  const constraint = await repo.create({
-    type: "constraint",
-    content: "notes-api: database access must go through the repository layer (NotesRepository interface); route handlers must never touch the database directly",
-    scope: projectScope("notes-api"),
-    confidence: 1,
-  });
-  const projectRule = await repo.create({
-    type: "rule",
-    content: "notes-api REST endpoints use plural resource names: /notes, /notes/:id (POST, GET, GET/:id)",
-    scope: projectScope("notes-api"),
-    confidence: 1,
-  });
-  const globalRule = await repo.create({
-    type: "rule",
-    content: "REST API resources should use plural nouns in endpoint paths, such as /tasks and /notes.",
-    scope: globalScope(),
-    confidence: 0.5,
-  });
+    const constraint = await repo.create({
+      type: "constraint",
+      content: "notes-api: database access must go through the repository layer (NotesRepository interface); route handlers must never touch the database directly",
+      scope: projectScope("notes-api"),
+      confidence: 1,
+    });
+    const projectRule = await repo.create({
+      type: "rule",
+      content: "notes-api REST endpoints use plural resource names: /notes, /notes/:id (POST, GET, GET/:id)",
+      scope: projectScope("notes-api"),
+      confidence: 1,
+    });
+    const globalRule = await repo.create({
+      type: "rule",
+      content: "REST API resources should use plural nouns in endpoint paths, such as /tasks and /notes.",
+      scope: globalScope(),
+      confidence: 0.5,
+    });
 
-  const pairs = await store.findSimilarPairs([constraint.id, projectRule.id, globalRule.id], 0);
-  const byPair = new Map(pairs.map((p) => [[p.a, p.b].sort().join(","), p.similarity]));
-  const redundantSimilarity = byPair.get([projectRule.id, globalRule.id].sort().join(","));
-  const distinctSimilarity1 = byPair.get([constraint.id, projectRule.id].sort().join(","));
-  const distinctSimilarity2 = byPair.get([constraint.id, globalRule.id].sort().join(","));
+    const pairs = await store.findSimilarPairs([constraint.id, projectRule.id, globalRule.id], 0);
+    const byPair = new Map(pairs.map((p) => [[p.a, p.b].sort().join(","), p.similarity]));
+    const redundantSimilarity = byPair.get([projectRule.id, globalRule.id].sort().join(","));
+    const distinctSimilarity1 = byPair.get([constraint.id, projectRule.id].sort().join(","));
+    const distinctSimilarity2 = byPair.get([constraint.id, globalRule.id].sort().join(","));
 
-  console.log(`\nreal-model similarity: project~global (known redundant) = ${redundantSimilarity}`);
-  console.log(`real-model similarity: constraint~projectRule (distinct) = ${distinctSimilarity1}`);
-  console.log(`real-model similarity: constraint~globalRule (distinct)  = ${distinctSimilarity2}`);
+    console.log(`\nreal-model similarity: project~global (known redundant) = ${redundantSimilarity}`);
+    console.log(`real-model similarity: constraint~projectRule (distinct) = ${distinctSimilarity1}`);
+    console.log(`real-model similarity: constraint~globalRule (distinct)  = ${distinctSimilarity2}`);
 
-  assert.ok(redundantSimilarity !== undefined && redundantSimilarity > 0.7, `expected the known pair near PHASE_2_FINDINGS.md's 0.785, got ${redundantSimilarity}`);
-  assert.ok((distinctSimilarity1 ?? 1) < (redundantSimilarity ?? 0), "the distinct constraint pair must score lower than the known redundant pair");
-  assert.ok((distinctSimilarity2 ?? 1) < (redundantSimilarity ?? 0), "the distinct constraint pair must score lower than the known redundant pair");
-  db.close();
-});
+    assert.ok(redundantSimilarity !== undefined && redundantSimilarity > 0.7, `expected the known pair near PHASE_2_FINDINGS.md's 0.785, got ${redundantSimilarity}`);
+    assert.ok((distinctSimilarity1 ?? 1) < (redundantSimilarity ?? 0), "the distinct constraint pair must score lower than the known redundant pair");
+    assert.ok((distinctSimilarity2 ?? 1) < (redundantSimilarity ?? 0), "the distinct constraint pair must score lower than the known redundant pair");
+    db.close();
+  },
+);

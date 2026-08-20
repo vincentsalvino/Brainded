@@ -208,8 +208,9 @@ fixture-quality, not a cosine stand-in, matching the existing `semanticSearch` f
 One real design decision was made during review (fix round 1, Task 1): the original implementation
 wrapped the SQL query in a broad `try/catch` that swallowed **any** SQL error (not just the
 "vectors unavailable" case) and returned `[]`. The reviewer found this contradicted the file's own
-pre-existing doc comment ("neither method catches its own failures -- degradation policy belongs to
-the caller") and the codebase's stated philosophy of propagating unexpected errors loudly. The
+pre-existing doc comment ("Neither method catches its own failures -- degradation policy [...]
+belongs to the caller") and the codebase's stated philosophy of propagating unexpected errors
+loudly. The
 `try/catch` was removed; the existing `!this.vectorSearchAvailable` guard clause alone satisfies
 E25's actual requirement. Any other error (a genuine SQL/schema bug) now propagates uncaught,
 matching `semanticSearch`'s pattern in the same file exactly.
@@ -246,8 +247,8 @@ degradation test and Task 8's end-to-end vector-degradation regression test).
 
 ## REDUNDANCY DETECTION
 
-2C-013, implemented in `packages/core/retrieval/src/redundancy.ts` + `service.ts` (Task 3), split
-pure/IO:
+P2-013 (spec §2C-004), implemented in `packages/core/retrieval/src/redundancy.ts` + `service.ts`
+(Task 3), split pure/IO:
 
 - `toRedundancyPairs()` (pure): re-orients raw `{a, b, similarity}` triples from
   `RetrievalStore.findSimilarPairs` so `a` is always the higher-ranked (lower `.rank` number)
@@ -335,8 +336,9 @@ A fix round added an **A′ control**, run without any redundancy logic at the i
 to isolate whether the omission is actually *caused* by demotion or merely coincidental with natural
 rank order. Empirical result across independent runs (memory UUIDs differ per run;
 `FakeEmbeddingProvider`'s pairing itself is deterministic): A′'s tight-budget set and C′'s tight-
-budget set **share the same first (rank-1) item but diverge on the second slot, every time** (e.g.
-one run: `A' tight: 42dce3a5...,3738c0d5...` vs `C' tight: 42dce3a5...,bd137485...`). This confirms
+budget set **share the same first (rank-1) item but diverge on the second slot, in both recorded
+runs** (e.g. one run: `A' tight: 42dce3a5...,3738c0d5...` vs `C' tight: 42dce3a5...,bd137485...`).
+This confirms
 demotion does real causal work in this example, not just reproducing what natural rank order would
 already have produced.
 
@@ -502,7 +504,7 @@ structural reason specific to these tests: `RetrievalService.getCandidates` unio
 semantic results (`mergeCandidates`, pure union on `memoryId`), and `SqliteRetrievalStore.
 semanticSearch` performs a pure top-K nearest-neighbor query with `overFetch = max(limit * 5, 50)`
 (here, `limit=50` → `overFetch=250`) and **no similarity floor** -- every memory in these small,
-hand-seeded per-example test databases (3-7 memories each) is returned by the semantic channel
+hand-seeded per-example test databases (3-5 memories each) is returned by the semantic channel
 regardless of lexical relevance, since 250 comfortably exceeds the entire corpus size. The union
 therefore already contained every seeded memory before the lexical channel's stopword match was
 even considered. **At production scale (a real corpus larger than the semantic overFetch limit),
@@ -562,7 +564,7 @@ npm run test:integration
 
 All commands PASS, real exit code 0 for every one, captured directly (not inferred) by this task:
 
-- `npm run typecheck` -- PASS, 0 errors, all 15 workspaces.
+- `npm run typecheck` -- PASS, 0 errors, all 14 workspaces.
 - `npm run build` -- PASS, 0 errors, all workspaces built.
 - `npm test` -- **350/350 passing, 0 failing**, across 14 workspace test suites (evaluation 48,
   gateway 33, knowledge 9, mcp 20, storage 51, compression 7, context 28, contracts 53, learning 2,
