@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ScopeRefSchema, MEMORY_TYPES } from "@brain/contracts";
+import { ScopeRefSchema, MEMORY_TYPES, OUTCOME_VALUES } from "@brain/contracts";
 
 /**
  * P2-007/P2-008: the replayable evaluation dataset.
@@ -48,6 +48,13 @@ export const EvalExampleSchema = z
      */
     redundantWith: z.record(z.string(), z.string()).default({}),
     notes: z.string().nullable().default(null),
+    /**
+     * 2C-002. Outcome attached as METADATA -- it does not automatically label
+     * any included memory (PHASE_2C_SPEC.md 2C-002). Present so
+     * exportFromEvents can carry a real OutcomeEvent's value through without
+     * fabricating a per-memory grade from it.
+     */
+    outcome: z.enum(OUTCOME_VALUES).nullable().default(null),
   })
   .strict()
   .superRefine((example, ctx) => {
