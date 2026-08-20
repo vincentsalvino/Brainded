@@ -10,8 +10,8 @@
     "packages/core/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@brain/contracts && npm run build --workspaces --if-present",
-    "typecheck": "npm run build --workspace=@brain/contracts && npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspace=@brain/contracts && npm run build --workspace=@brain/storage --workspace=@brain/memory --workspace=@brain/ranking --workspace=@brain/retrieval --workspace=@brain/learning --workspace=@brain/token --workspace=@brain/context --workspace=@brain/compression --workspace=@brain/test-fixtures --workspace=@brain/evaluation && npm run build --workspace=@brain/gateway --workspace=@brain/knowledge && npm run build --workspaces --if-present",
+    "typecheck": "npm run build --workspace=@brain/contracts && npm run build --workspace=@brain/storage --workspace=@brain/memory --workspace=@brain/ranking --workspace=@brain/retrieval --workspace=@brain/learning --workspace=@brain/token --workspace=@brain/context --workspace=@brain/compression --workspace=@brain/test-fixtures --workspace=@brain/evaluation && npm run build --workspace=@brain/gateway --workspace=@brain/knowledge && npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },
   "devDependencies": {
