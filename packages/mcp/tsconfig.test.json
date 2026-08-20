@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist-test",
+    "rootDir": "./src",
+    "types": ["node"]
+  },
+  "references": [
+    { "path": "../core/contracts" },
+    { "path": "../gateway" },
+    { "path": "../storage" },
+    { "path": "../core/test-fixtures" }
+  ],
+  "include": ["src/**/*.ts"]
+}

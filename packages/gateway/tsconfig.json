@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "types": ["node"]
+  },
+  "references": [
+    { "path": "../core/contracts" },
+    { "path": "../core/memory" },
+    { "path": "../core/retrieval" },
+    { "path": "../core/ranking" },
+    { "path": "../core/context" },
+    { "path": "../core/token" },
+    { "path": "../core/learning" }
+  ],
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/*.test.ts", "dist"]
+}

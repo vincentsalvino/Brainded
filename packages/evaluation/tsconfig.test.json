@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist-test",
+    "rootDir": "./src",
+    "types": ["node"]
+  },
+  "references": [
+    { "path": "../core/contracts" },
+    { "path": "../core/ranking" },
+    { "path": "../core/retrieval" },
+    { "path": "../core/test-fixtures" },
+    { "path": "../storage" }
+  ],
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist-test",
+    "rootDir": "./src",
+    "types": ["node"]
+  },
+  "references": [
+    { "path": "../core/contracts" },
+    { "path": "../core/memory" },
+    { "path": "../core/retrieval" },
+    { "path": "../core/ranking" },
+    { "path": "../core/context" },
+    { "path": "../core/token" },
+    { "path": "../core/learning" },
+    { "path": "../core/test-fixtures" }
+  ],
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@brain/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "tsc -p tsconfig.test.json",
+    "test": "node --test \"dist-test/**/*.test.js\""
+  },
+  "dependencies": {
+    "@brain/contracts": "0.1.0",
+    "@brain/memory": "0.1.0",
+    "@brain/retrieval": "0.1.0",
+    "@brain/ranking": "0.1.0",
+    "@brain/context": "0.1.0",
+    "@brain/token": "0.1.0",
+    "@brain/learning": "0.1.0"
+  },
+  "devDependencies": {
+    "@brain/test-fixtures": "0.1.0"
+  }
+}
