@@ -273,6 +273,50 @@ test("CONSTRAINED BUDGET: the demoted member of the plural-rule pair is omitted 
   }
 });
 
+test("REAL PILOT REGRESSION: project naming rule survives a constrained budget, repository constraint survives, redundant global rule is demoted/omitted (docs/PHASE_2C_PILOT_REPORT.md, 2C.1)", async () => {
+  // Recreates the real Phase 2C pilot fixture verbatim (same task text, same
+  // three memory contents). In the real pilot, the global duplicate outranked
+  // the project rule on raw relevance and rank-only orientation demoted the
+  // PROJECT memory instead -- unlike the pre-existing CONSTRAINED BUDGET test
+  // above, this one hardcodes the expected direction, because 2C.1's
+  // scope-aware anchor preference now guarantees it regardless of rank.
+  const example = loadDataset(DATASET).find((e) => e.id === "phase2c-pilot-redundancy-regression");
+  assert.ok(example, "expects the real-pilot-recreation example: project naming rule + project repo constraint + redundant global naming rule");
+  const seeded = await seed(example);
+  try {
+    const candidates = await seeded.retrievalService.getCandidates({ text: example.task, scope: example.scope, limit: CANDIDATE_LIMIT });
+    const rankedResults = rank({ candidates, task: example.task });
+    const redundancyPairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, REDUNDANCY_THRESHOLD);
+    const compiled = compileContext({ task: example.task, scope: example.scope, rankedResults, redundancyPairs });
+
+    const projectNamingId = seeded.idByKey.get("project-naming-rule") as string;
+    const repoConstraintId = seeded.idByKey.get("project-repo-constraint") as string;
+    const globalNamingId = seeded.idByKey.get("global-naming-rule") as string;
+
+    const demoted = compiled.items.filter((i) => i.redundantWith !== undefined);
+    assert.equal(demoted.length, 1, "exactly one memory should be demoted in this 3-memory cluster");
+    assert.equal(demoted[0]?.memoryId, globalNamingId, "the GLOBAL naming rule must be the demoted one, never the project rule");
+    assert.equal(demoted[0]?.redundantWith, projectNamingId, "the project rule must be the anchor the global rule is demoted behind");
+
+    const projectCost = estimateTokens(compiled.items.find((i) => i.memoryId === projectNamingId)?.content ?? "");
+    const repoCost = estimateTokens(compiled.items.find((i) => i.memoryId === repoConstraintId)?.content ?? "");
+    const globalCost = estimateTokens(demoted[0]?.content ?? "");
+
+    // Tight budget: fits exactly the two non-redundant items, not the third.
+    const tight = optimizeContext(compiled, { maxTokens: projectCost + repoCost });
+    const tightIds = tight.items.map((i) => i.memoryId);
+    assert.ok(tightIds.includes(projectNamingId), "project naming rule must survive the constrained budget");
+    assert.ok(tightIds.includes(repoConstraintId), "repository constraint must survive the constrained budget");
+    assert.ok(!tightIds.includes(globalNamingId), "redundant global naming rule must be demoted/omitted under the constrained budget");
+
+    // Ample budget: the demoted global rule may reappear -- demoted != deleted.
+    const ample = optimizeContext(compiled, { maxTokens: projectCost + repoCost + globalCost + 10 });
+    assert.ok(ample.items.map((i) => i.memoryId).includes(globalNamingId), "the demoted global rule must still be returned once budget is ample");
+  } finally {
+    seeded.close();
+  }
+});
+
 /**
  * A' vs C' efficiency comparison. Deliberately does NOT hard-assert a
  * directional winner: P2-018 (PHASE_2_SPEC.md 20) treats "does C' actually

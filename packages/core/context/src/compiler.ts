@@ -31,8 +31,27 @@ import { CompileContextInputSchema, type CompileContextInput, type CompiledConte
 export function compileContext(rawInput: CompileContextInput): CompiledContext {
   const input = CompileContextInputSchema.parse(rawInput);
 
+  // 2C.1: which memoryIds survive exact-content dedup, computed over the
+  // WHOLE list before the main loop runs. The redundancy guard below needs
+  // to know whether a pair's anchor (the `a` side) is ultimately present in
+  // the output, independent of where in rankedResults it sits. Checking this
+  // against a set built incrementally DURING the same pass that builds items
+  // (as a single loop naturally would) silently assumes `a` is always
+  // visited before `b` -- true when redundancy orientation was rank-only,
+  // no longer true once a more scope-specific memory can anchor a
+  // better-ranked, less specific one (docs/PHASE_2C_PILOT_REPORT.md's real
+  // finding: that exact case silently failed to demote at all).
+  const survivingMemoryIds = new Set<string>();
+  {
+    const seen = new Set<string>();
+    for (const ranked of input.rankedResults) {
+      if (seen.has(ranked.record.content)) continue;
+      seen.add(ranked.record.content);
+      survivingMemoryIds.add(ranked.memoryId);
+    }
+  }
+
   const seenContent = new Set<string>();
-  const keptMemoryIds = new Set<string>();
   const nonRedundant: ContextItem[] = [];
   const redundant: ContextItem[] = [];
   let duplicatesRemoved = 0;
@@ -42,10 +61,10 @@ export function compileContext(rawInput: CompileContextInput): CompiledContext {
   // similarity-descending (sortSimilarityPairs); first write wins so a memory
   // redundant with more than one other points at its STRONGEST match, not
   // whichever pair happened to be processed last. The redundancy marking is
-  // gated on keptMemoryIds.has(redundantWith) below: if a pair's reference
-  // target (the `a` side) is dropped by content-dedup before the redundant
-  // item (the `b` side) is reached, the redundant marking must not apply,
-  // since the reference no longer exists in the output.
+  // gated on survivingMemoryIds.has(redundantWith) below: if a pair's
+  // reference target (the `a` side) is dropped by content-dedup, the
+  // redundant marking must not apply, since the reference no longer exists
+  // in the output.
   const redundantWithById = new Map<string, string>();
   for (const pair of input.redundancyPairs ?? []) {
     if (!redundantWithById.has(pair.b)) redundantWithById.set(pair.b, pair.a);
@@ -57,7 +76,6 @@ export function compileContext(rawInput: CompileContextInput): CompiledContext {
       continue;
     }
     seenContent.add(ranked.record.content);
-    keptMemoryIds.add(ranked.memoryId);
 
     const item: ContextItem = {
       memoryId: ranked.memoryId,
@@ -74,7 +92,7 @@ export function compileContext(rawInput: CompileContextInput): CompiledContext {
     };
 
     const redundantWith = redundantWithById.get(ranked.memoryId);
-    if (redundantWith !== undefined && keptMemoryIds.has(redundantWith)) {
+    if (redundantWith !== undefined && survivingMemoryIds.has(redundantWith)) {
       redundant.push({ ...item, redundantWith });
     } else {
       nonRedundant.push(item);

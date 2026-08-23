@@ -257,6 +257,25 @@ test("redundancy: a pair naming a memoryId dropped by dedup is ignored, not a cr
   for (const item of result.items) assert.equal("redundantWith" in item, false);
 });
 
+test("redundancy: the anchor (a) may rank WORSE than the demoted item (b) -- the mark must still apply", () => {
+  // Before 2C.1 (docs/PHASE_2C_PILOT_REPORT.md), toRedundancyPairs always
+  // oriented `a` to the better (lower) rank, so `a` was always visited before
+  // `b` in rankedResults order. 2C.1 lets a more scope-specific memory anchor
+  // a better-ranked, less specific one -- so `a` can now appear AFTER `b` in
+  // rank order. The demotion must not silently fail just because its anchor
+  // has not been visited yet when `b` is processed.
+  const b = rankedResult({ rank: 1 }, { content: "global rule" });
+  const a = rankedResult({ rank: 2 }, { content: "project rule" });
+  const result = compileContext({
+    task: "t",
+    scope: globalScope(),
+    rankedResults: [b, a],
+    redundancyPairs: [{ a: a.memoryId, b: b.memoryId, similarity: 0.9 }],
+  });
+  assert.equal(result.items.find((i) => i.memoryId === b.memoryId)?.redundantWith, a.memoryId);
+  assert.equal("redundantWith" in (result.items.find((i) => i.memoryId === a.memoryId) ?? {}), false);
+});
+
 test("redundancy: structural purity -- package.json still declares no embedding/storage dependency", async () => {
   const pkg = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf-8"));
   assert.deepEqual(Object.keys(pkg.dependencies), ["@brain/contracts"]);
