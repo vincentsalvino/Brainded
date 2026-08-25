@@ -12,7 +12,9 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "tsc -p tsconfig.test.json",
-    "test": "node --test \"dist-test/**/*.test.js\""
+    "test": "node --test \"dist-test/metrics.test.js\" \"dist-test/gate.test.js\" \"dist-test/efficiency.test.js\" \"dist-test/export.test.js\" \"dist-test/redundancy-gate.test.js\" \"dist-test/classification-metrics.test.js\"",
+    "pretest:integration": "tsc -p tsconfig.test.json",
+    "test:integration": "node --test \"dist-test/redundancy-benchmark.test.js\" \"dist-test/redundancy-boundary.test.js\""
   },
   "dependencies": {
     "@brain/contracts": "0.1.0",
