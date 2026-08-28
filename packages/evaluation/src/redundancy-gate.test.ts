@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Candidate, RankedResult } from "@brain/contracts";
 import { rank } from "@brain/ranking";
-import { RetrievalService } from "@brain/retrieval";
+import { RetrievalService, type NearDuplicatePolicy } from "@brain/retrieval";
 import { compileContext } from "@brain/context";
 import { optimizeContext, estimateTokens } from "@brain/token";
 import { openDatabase, SqliteMemoryRepository, SqliteRetrievalStore } from "@brain/storage";
@@ -15,6 +15,18 @@ import type { EvalExample } from "./types.js";
 
 const DATASET = join(dirname(fileURLToPath(import.meta.url)), "..", "datasets", "phase1-realworld.jsonl");
 const CANDIDATE_LIMIT = 50;
+
+/**
+ * 2C.7: this whole file predates the hybrid policy and tests a single
+ * cosine-like threshold against FakeEmbeddingProvider's own similarity
+ * scale (not real cosine). candidateFloor === highConfidenceThreshold
+ * collapses the hybrid rule back to that exact plain-threshold check --
+ * the lexical containment branch is never reached, preserving every
+ * assertion below unchanged.
+ */
+function simplePolicy(threshold: number): NearDuplicatePolicy {
+  return { candidateFloor: threshold, highConfidenceThreshold: threshold, containmentThreshold: 0 };
+}
 
 interface Seeded {
   db: ReturnType<typeof openDatabase>;
@@ -74,7 +86,7 @@ test("threshold sweep: notes-api-db-refactor -- known redundant pair vs distinct
 
     const report: { threshold: number; redundantPairFound: boolean; distinctPairFound: boolean }[] = [];
     for (const threshold of THRESHOLDS) {
-      const pairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, threshold);
+      const pairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, simplePolicy(threshold));
       const named = pairs.map((p) => [seeded.keyById.get(p.a), seeded.keyById.get(p.b)]);
       report.push({
         threshold,
@@ -103,7 +115,7 @@ test("threshold sweep: task-api-completed-filter -- the task-sqlite/task-express
   const seeded = await seed(example);
   try {
     const rankedResults = await rankedFor(seeded, example);
-    const pairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, 0.55);
+    const pairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, simplePolicy(0.55));
     const named = pairs.map((p) => [seeded.keyById.get(p.a), seeded.keyById.get(p.b)].sort());
     assert.ok(
       named.some(([a, b]) => a === "task-repo-constraint" && b === "task-repo-decision"),
@@ -130,7 +142,7 @@ const BUDGET = { maxTokens: 500 };
 async function runPipeline(seeded: Seeded, example: EvalExample, useRedundancy: boolean): Promise<string[]> {
   const candidates = await seeded.retrievalService.getCandidates({ text: example.task, scope: example.scope, limit: CANDIDATE_LIMIT });
   const rankedResults = rank({ candidates, task: example.task });
-  const redundancyPairs = useRedundancy ? await seeded.retrievalService.getRedundancyPairs(rankedResults, REDUNDANCY_THRESHOLD) : [];
+  const redundancyPairs = useRedundancy ? await seeded.retrievalService.getRedundancyPairs(rankedResults, simplePolicy(REDUNDANCY_THRESHOLD)) : [];
   const compiled = compileContext({ task: example.task, scope: example.scope, rankedResults, redundancyPairs });
   const pack = optimizeContext(compiled, BUDGET);
   return pack.items.map((i) => seeded.keyById.get(i.memoryId) ?? i.memoryId);
@@ -163,7 +175,7 @@ test("no-redundancy regression: a below-threshold example produces byte-identica
   try {
     const candidates = await seeded.retrievalService.getCandidates({ text: example.task, scope: example.scope, limit: CANDIDATE_LIMIT });
     const rankedResults = rank({ candidates, task: example.task });
-    const pairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, REDUNDANCY_THRESHOLD);
+    const pairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, simplePolicy(REDUNDANCY_THRESHOLD));
     assert.deepEqual(pairs, [], "this example must produce no redundancy pairs at the working threshold");
 
     const withoutPairs = compileContext({ task: example.task, scope: example.scope, rankedResults });
@@ -205,7 +217,7 @@ test("vector-degradation regression: findSimilarPairs unavailable degrades the w
   const retrievalService = new RetrievalService(store);
   const candidates = await retrievalService.getCandidates({ text: example.task, scope: example.scope, limit: CANDIDATE_LIMIT });
   const rankedResults = rank({ candidates, task: example.task });
-  const pairs = await retrievalService.getRedundancyPairs(rankedResults, REDUNDANCY_THRESHOLD);
+  const pairs = await retrievalService.getRedundancyPairs(rankedResults, simplePolicy(REDUNDANCY_THRESHOLD));
   assert.deepEqual(pairs, []);
   const compiled = compileContext({ task: example.task, scope: example.scope, rankedResults, redundancyPairs: pairs });
   assert.ok(compiled.items.length > 0, "guard against a vacuous pass: this example's 3 memories must actually reach the compiler");
@@ -226,7 +238,7 @@ test("CONSTRAINED BUDGET: the demoted member of the plural-rule pair is omitted 
   try {
     const candidates = await seeded.retrievalService.getCandidates({ text: example.task, scope: example.scope, limit: CANDIDATE_LIMIT });
     const rankedResults = rank({ candidates, task: example.task });
-    const redundancyPairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, REDUNDANCY_THRESHOLD);
+    const redundancyPairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, simplePolicy(REDUNDANCY_THRESHOLD));
     const compiled = compileContext({ task: example.task, scope: example.scope, rankedResults, redundancyPairs });
 
     const distinctId = seeded.idByKey.get("notes-repo-constraint") as string;
@@ -286,7 +298,7 @@ test("REAL PILOT REGRESSION: project naming rule survives a constrained budget, 
   try {
     const candidates = await seeded.retrievalService.getCandidates({ text: example.task, scope: example.scope, limit: CANDIDATE_LIMIT });
     const rankedResults = rank({ candidates, task: example.task });
-    const redundancyPairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, REDUNDANCY_THRESHOLD);
+    const redundancyPairs = await seeded.retrievalService.getRedundancyPairs(rankedResults, simplePolicy(REDUNDANCY_THRESHOLD));
     const compiled = compileContext({ task: example.task, scope: example.scope, rankedResults, redundancyPairs });
 
     const projectNamingId = seeded.idByKey.get("project-naming-rule") as string;
@@ -351,7 +363,7 @@ test("A' vs C' efficiency comparison over the seed dataset (ample and constraine
       try {
         const candidates = await seeded.retrievalService.getCandidates({ text: example.task, scope: example.scope, limit: CANDIDATE_LIMIT });
         const rankedResults = rank({ candidates, task: example.task });
-        const redundancyPairs = useRedundancy ? await seeded.retrievalService.getRedundancyPairs(rankedResults, REDUNDANCY_THRESHOLD) : [];
+        const redundancyPairs = useRedundancy ? await seeded.retrievalService.getRedundancyPairs(rankedResults, simplePolicy(REDUNDANCY_THRESHOLD)) : [];
         const compiled = compileContext({ task: example.task, scope: example.scope, rankedResults, redundancyPairs });
         const pack = optimizeContext(compiled, { maxTokens: budgetTokens });
         for (const item of pack.items) {

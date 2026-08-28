@@ -10,7 +10,7 @@ import {
   type SimilarityPair,
 } from "@brain/contracts";
 import type { MemoryService } from "@brain/memory";
-import type { RetrievalService } from "@brain/retrieval";
+import { DEFAULT_NEAR_DUPLICATE_POLICY, type NearDuplicatePolicy, type RetrievalService } from "@brain/retrieval";
 import type { EventService } from "@brain/learning";
 import { rank } from "@brain/ranking";
 import { compileContext } from "@brain/context";
@@ -35,13 +35,15 @@ const DEFAULT_CANDIDATE_LIMIT = 50;
 const PROJECT_COUNT_LIMIT = 500;
 
 /**
- * 2C-004. NOT a statistically fit value -- the one real datapoint
- * (PHASE_2_FINDINGS.md 5) puts the known redundant pair at cosine 0.785 with
- * the next-nearest distinct memory at 0.518. 0.75 gives margin below the
- * former and above the latter. Adjustable; see docs/PHASE_2C_FINDINGS.md for
- * the threshold sweep this default is informed by.
+ * 2C.7. Redundancy config is `{ enabled }` plus the full `NearDuplicatePolicy`
+ * (candidateFloor/highConfidenceThreshold/containmentThreshold) re-exported
+ * from @brain/retrieval -- a single flat shape, not a `threshold` field that
+ * would otherwise have to mean two different things (the floor passed to
+ * storage vs. the cosine bar for an unconditional duplicate call). See
+ * @brain/retrieval's lexical-containment.ts for the policy's own history and
+ * the Phase 2C.6 evaluation it was validated against.
  */
-export const DEFAULT_REDUNDANCY_THRESHOLD = 0.75;
+export type RedundancyConfig = { enabled: boolean } & NearDuplicatePolicy;
 
 /**
  * The Brain Gateway: exposes the 10 stable brain_* capabilities, orchestrates
@@ -71,9 +73,9 @@ export class Gateway {
     // byte-identical to Phase 2B (the no-redundancy regression at the
     // production default, not just as a below-threshold edge case). Ship
     // disabled until Task 8's evaluation justifies enabling it.
-    private readonly redundancy: { enabled: boolean; threshold: number } = {
+    private readonly redundancy: RedundancyConfig = {
       enabled: false,
-      threshold: DEFAULT_REDUNDANCY_THRESHOLD,
+      ...DEFAULT_NEAR_DUPLICATE_POLICY,
     },
   ) {}
 
@@ -104,7 +106,7 @@ export class Gateway {
     let redundancyPairs: SimilarityPair[] = [];
     if (this.redundancy.enabled) {
       try {
-        redundancyPairs = await this.retrieval.getRedundancyPairs(rankedResults, this.redundancy.threshold);
+        redundancyPairs = await this.retrieval.getRedundancyPairs(rankedResults, this.redundancy);
       } catch (error) {
         console.warn("brain_context: redundancy detection failed, continuing without it:", error);
       }

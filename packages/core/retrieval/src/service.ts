@@ -1,6 +1,7 @@
 import { RetrievalQuerySchema, type RetrievalQuery, type Candidate, type RetrievalStore, type RankedResult, type SimilarityPair } from "@brain/contracts";
 import { mergeCandidates } from "./merge.js";
 import { toRedundancyPairs } from "./redundancy.js";
+import { isNearDuplicate, type NearDuplicatePolicy } from "./lexical-containment.js";
 
 /**
  * Candidate generation ONLY. "Here are the potentially relevant things" -- never
@@ -51,14 +52,34 @@ export class RetrievalService {
   }
 
   /**
-   * P2-013: redundancy-pair computation in retrieval preparation, which
-   * already has store access (PHASE_2_SPEC.md 8). Delegates the actual
-   * similarity math to the store (E25) and only re-orients by rank here --
-   * this method does no vector math itself.
+   * P2-013/2C.7: redundancy-pair computation in retrieval preparation, which
+   * already has store access (PHASE_2_SPEC.md 8). Delegates cosine
+   * similarity math to the store (E25) -- never lexical logic, per 2C.7
+   * instruction -- then applies the pure hybrid near-duplicate classifier
+   * (isNearDuplicate) to decide WHICH of the store's returned pairs are
+   * really near-duplicates, before handing only the accepted ones to
+   * toRedundancyPairs for anchor orientation. Two separate questions, two
+   * separate functions: this method decides "is it a duplicate at all",
+   * toRedundancyPairs decides "which side anchors" -- never combined.
+   *
+   * `policy.candidateFloor` (not `highConfidenceThreshold`) is what reaches
+   * the store: a pair in [candidateFloor, highConfidenceThreshold) must
+   * still be retrieved so containment can corroborate it. Passing the
+   * high-confidence threshold here would silently drop every pair the
+   * lexical check exists to rescue.
    */
-  async getRedundancyPairs(rankedResults: RankedResult[], minSimilarity: number): Promise<SimilarityPair[]> {
+  async getRedundancyPairs(rankedResults: RankedResult[], policy: NearDuplicatePolicy): Promise<SimilarityPair[]> {
     if (rankedResults.length < 2) return [];
-    const pairs = await this.store.findSimilarPairs(rankedResults.map((r) => r.memoryId), minSimilarity);
-    return toRedundancyPairs(rankedResults, pairs);
+    const candidatePairs = await this.store.findSimilarPairs(rankedResults.map((r) => r.memoryId), policy.candidateFloor);
+
+    const contentById = new Map(rankedResults.map((r) => [r.memoryId, r.record.content]));
+    const nearDuplicatePairs = candidatePairs.filter((pair) => {
+      const contentA = contentById.get(pair.a);
+      const contentB = contentById.get(pair.b);
+      if (contentA === undefined || contentB === undefined) return false;
+      return isNearDuplicate({ cosineSimilarity: pair.similarity, contentA, contentB }, policy);
+    });
+
+    return toRedundancyPairs(rankedResults, nearDuplicatePairs);
   }
 }

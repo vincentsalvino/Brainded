@@ -4,9 +4,9 @@ import { SqliteRetrievalStore } from "@brain/storage";
 import { SqliteEventStore } from "@brain/storage";
 import { LocalEmbeddingProvider } from "@brain/storage";
 import { MemoryService } from "@brain/memory";
-import { RetrievalService } from "@brain/retrieval";
+import { RetrievalService, DEFAULT_NEAR_DUPLICATE_POLICY } from "@brain/retrieval";
 import { EventService } from "@brain/learning";
-import { Gateway, DEFAULT_REDUNDANCY_THRESHOLD } from "@brain/gateway";
+import { Gateway } from "@brain/gateway";
 
 /**
  * The ONE file in this repository allowed to import both a concrete
@@ -35,8 +35,9 @@ export function createBrain(dbPath: string): Brain {
     new RetrievalService(retrievalStore),
     new EventService(eventStore),
     { vectorSearchAvailable: db.vectorSearchAvailable },
-    // 2C: machinery in place, disabled pending Task 8's evaluation result.
-    { enabled: false, threshold: DEFAULT_REDUNDANCY_THRESHOLD },
+    // 2C/2C.7: machinery in place, disabled pending live-pilot evidence strong
+    // enough to justify a default-enable decision (docs/PHASE_2C7_REPORT.md).
+    { enabled: false, ...DEFAULT_NEAR_DUPLICATE_POLICY },
   );
 
   return { gateway, close: () => db.close() };

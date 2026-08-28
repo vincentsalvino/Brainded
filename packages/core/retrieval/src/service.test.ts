@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { globalScope, projectScope, sessionScope, type RankedResult } from "@brain/contracts";
+import { globalScope, projectScope, sessionScope, type RankedResult, type SimilarityPair, type MemoryRecord } from "@brain/contracts";
 import { FakeRetrievalStore, buildMemoryRecord } from "@brain/test-fixtures";
 import { RetrievalService } from "./service.js";
+import { DEFAULT_NEAR_DUPLICATE_POLICY, DEFAULT_CANDIDATE_FLOOR } from "./lexical-containment.js";
 
 // Every test in this file uses FakeRetrievalStore (no SQLite, no real embedding
 // model) -- network-free by construction, not by convention (Step 11.16).
@@ -168,7 +169,7 @@ test("getRedundancyPairs: delegates to the store and re-orients by rank", async 
     { memoryId: a.id, record: a, score: 1, signals: { diversity: null }, rank: 1 },
     { memoryId: b.id, record: b, score: 0.5, signals: { diversity: null }, rank: 2 },
   ];
-  const pairs = await service.getRedundancyPairs(rankedResults, 0);
+  const pairs = await service.getRedundancyPairs(rankedResults, { candidateFloor: 0, highConfidenceThreshold: 1.1, containmentThreshold: 0 });
   assert.ok(pairs.length > 0);
   assert.equal(pairs[0]?.a, a.id, "the higher-ranked memory (rank 1) must be `a`");
 });
@@ -176,5 +177,63 @@ test("getRedundancyPairs: delegates to the store and re-orients by rank", async 
 test("getRedundancyPairs: fewer than two ranked results returns no pairs, no error", async () => {
   const store = new FakeRetrievalStore();
   const service = new RetrievalService(store);
-  assert.deepEqual(await service.getRedundancyPairs([], 0.5), []);
+  assert.deepEqual(await service.getRedundancyPairs([], DEFAULT_NEAR_DUPLICATE_POLICY), []);
+});
+
+// --- 2C.7: hybrid near-duplicate classification wired into the pipeline ----
+// findSimilarPairs must receive candidateFloor (0.75), never
+// highConfidenceThreshold (0.80) -- a [0.75, 0.80) pair must reach the
+// classifier at all, or it can never be corroborated by containment.
+
+class FixedSimilarityStore extends FakeRetrievalStore {
+  lastMinSimilarity: number | undefined;
+  constructor(
+    private readonly fixedSimilarity: number,
+    records: MemoryRecord[],
+  ) {
+    super(records);
+  }
+  override async findSimilarPairs(memoryIds: string[], minSimilarity: number): Promise<SimilarityPair[]> {
+    this.lastMinSimilarity = minSimilarity;
+    if (memoryIds.length < 2) return [];
+    // Mirrors real storage's own floor filtering, so a wrongly-passed 0.80
+    // would silently swallow the pair here, exactly as it would for real.
+    if (this.fixedSimilarity < minSimilarity) return [];
+    return [{ a: memoryIds[0] as string, b: memoryIds[1] as string, similarity: this.fixedSimilarity }];
+  }
+}
+
+function rankedFrom(records: MemoryRecord[]): RankedResult[] {
+  return records.map((record, index) => ({ memoryId: record.id, record, score: 1 - index * 0.1, signals: { diversity: null }, rank: index + 1 }));
+}
+
+test("integration regression: a 0.785 pair (candidate-band, not high-confidence) reaches classification and is accepted by containment", async () => {
+  const a = buildMemoryRecord({
+    content: "notes-api REST endpoints use plural resource names: /notes, /notes/:id (POST, GET, GET/:id, PATCH/:id, DELETE/:id).",
+  });
+  const b = buildMemoryRecord({ content: "REST API resources should use plural nouns in endpoint paths, such as /tasks and /notes." });
+  const store = new FixedSimilarityStore(0.785122, [a, b]);
+  const service = new RetrievalService(store);
+
+  const pairs = await service.getRedundancyPairs(rankedFrom([a, b]), DEFAULT_NEAR_DUPLICATE_POLICY);
+
+  assert.equal(store.lastMinSimilarity, DEFAULT_CANDIDATE_FLOOR, "storage must receive the candidate floor, not the high-confidence threshold");
+  assert.equal(pairs.length, 1, "the 0.785 pair must survive classification (containment 0.50 >= 0.40)");
+});
+
+test("integration regression: a 0.762 pair reaches classification but is rejected -- storage returns it, the classifier says distinct", async () => {
+  const a = buildMemoryRecord({
+    content:
+      "phase2c-threshold80-pilot application errors must be converted into structured API error responses at the HTTP boundary, while service-layer code should return domain errors rather than HTTP responses.",
+  });
+  const b = buildMemoryRecord({
+    content: "phase2c-threshold80-pilot unexpected internal failures must be logged with request correlation metadata before a generic server error is returned.",
+  });
+  const store = new FixedSimilarityStore(0.762576, [a, b]);
+  const service = new RetrievalService(store);
+
+  const pairs = await service.getRedundancyPairs(rankedFrom([a, b]), DEFAULT_NEAR_DUPLICATE_POLICY);
+
+  assert.equal(store.lastMinSimilarity, DEFAULT_CANDIDATE_FLOOR);
+  assert.equal(pairs.length, 0, "the 0.762 pair must be rejected (containment 0.286 < 0.40) -- never reaches toRedundancyPairs");
 });
