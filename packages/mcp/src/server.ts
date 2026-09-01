@@ -53,6 +53,7 @@ export function registerBrainTools(server: McpServer, gateway: Gateway): void {
     {
       description:
         "Compile a budget-enforced, ranked context pack for a task: retrieval -> ranking -> context compilation -> token optimization. " +
+        "When the project has indexed code, relevant source chunks and bounded dependency context are automatically blended into the same budget (see codeItems/dependencyItems on the response) -- no separate call needed. " +
         "Returns a contextId naming this exact delivery -- pass it back to brain_feedback and brain_record_outcome so the Brain can tell which delivery your report refers to. " +
         "Optionally pass taskId to group several deliveries under one logical task.",
       inputSchema: getContextShape,

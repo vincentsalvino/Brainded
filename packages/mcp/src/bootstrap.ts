@@ -3,9 +3,14 @@ import { SqliteMemoryRepository } from "@brain/storage";
 import { SqliteRetrievalStore } from "@brain/storage";
 import { SqliteEventStore } from "@brain/storage";
 import { LocalEmbeddingProvider } from "@brain/storage";
+import { SqliteCodeSearchStore } from "@brain/storage";
+import { SqliteCodeDependencyStore } from "@brain/storage";
+import { SqliteCodebaseRepository } from "@brain/storage";
 import { MemoryService } from "@brain/memory";
 import { RetrievalService, DEFAULT_NEAR_DUPLICATE_POLICY } from "@brain/retrieval";
+import { CodeRetrievalService } from "@brain/retrieval";
 import { EventService } from "@brain/learning";
+import { DependencyGraphService } from "@brain/codebase";
 import { Gateway } from "@brain/gateway";
 
 /**
@@ -29,6 +34,9 @@ export function createBrain(dbPath: string): Brain {
   const memoryRepository = new SqliteMemoryRepository(db.raw, embeddings);
   const retrievalStore = new SqliteRetrievalStore(db.raw, embeddings, db.vectorSearchAvailable);
   const eventStore = new SqliteEventStore(db.raw);
+  const codebaseRepository = new SqliteCodebaseRepository(db.raw);
+  const codeSearchStore = new SqliteCodeSearchStore(db.raw, embeddings, db.vectorSearchAvailable);
+  const codeDependencyStore = new SqliteCodeDependencyStore(db.raw);
 
   const gateway = new Gateway(
     new MemoryService(memoryRepository),
@@ -38,6 +46,8 @@ export function createBrain(dbPath: string): Brain {
     // 2C/2C.7: machinery in place, disabled pending live-pilot evidence strong
     // enough to justify a default-enable decision (docs/PHASE_2C7_REPORT.md).
     { enabled: false, ...DEFAULT_NEAR_DUPLICATE_POLICY },
+    new CodeRetrievalService(codeSearchStore),
+    new DependencyGraphService(codebaseRepository, codeDependencyStore),
   );
 
   return { gateway, close: () => db.close() };
