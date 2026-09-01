@@ -5,8 +5,11 @@ import { FakeEventStore } from "./fake-event-store.js";
 import { FakeMemoryRepository } from "./fake-memory-repository.js";
 import { FakeRetrievalStore } from "./fake-retrieval-store.js";
 import { FakeCodebaseRepository } from "./fake-codebase-repository.js";
+import { FakeCodeSearchStore } from "./fake-code-search-store.js";
+import { FakeEmbeddingProvider } from "./fake-embedding-provider.js";
 import { oneOfEachMemoryType, crossScopeFixture, buildMemoryRecord } from "./fixtures.js";
 import { runRetrievalStoreConformance } from "./store-conformance.js";
+import { runCodeSearchStoreConformance } from "./code-store-conformance.js";
 
 test("fixtures: oneOfEachMemoryType covers all 12 types", () => {
   const records = oneOfEachMemoryType();
@@ -139,6 +142,84 @@ runRetrievalStoreConformance({
     const store = new FakeRetrievalStore(
       seeds.map((seed) => buildMemoryRecord({ content: seed.content, scope: seed.scope })),
     );
+    return { store, cleanup: () => {} };
+  },
+});
+
+test("FakeCodeSearchStore: lexicalSearch respects scope and returns overlap-scored results", async () => {
+  const store = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  store.index({
+    id: "c1",
+    fileId: "f1",
+    repositoryId: "repo-1",
+    scope: globalScope(),
+    relativePath: "src/a.ts",
+    chunkIndex: 0,
+    startLine: 1,
+    endLine: 1,
+    content: "use conventional commits for this repository",
+    contentHash: "h1",
+  });
+  const results = await store.lexicalSearch({ text: "conventional commits", scope: globalScope(), limit: 10 });
+  assert.equal(results.length, 1);
+  assert.ok((results[0]?.signals.lexicalScore ?? 0) > 0);
+});
+
+test("FakeCodeSearchStore: semanticSearch failure can be simulated for degradation tests", async () => {
+  const store = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  store.simulateSemanticFailure(true);
+  await assert.rejects(() => store.semanticSearch({ text: "anything", scope: globalScope(), limit: 10 }));
+});
+
+test("FakeCodeSearchStore: syncEmbeddings embeds new chunks once, then reports the rest unchanged", async () => {
+  const store = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  store.index({
+    id: "c1",
+    fileId: "f1",
+    repositoryId: "repo-1",
+    scope: globalScope(),
+    relativePath: "src/a.ts",
+    chunkIndex: 0,
+    startLine: 1,
+    endLine: 1,
+    content: "alpha",
+    contentHash: "h1",
+  });
+  const first = await store.syncEmbeddings("repo-1");
+  assert.deepEqual(first, { chunksEmbedded: 1, chunksUnchanged: 0, chunksRemoved: 0, available: true });
+  const second = await store.syncEmbeddings("repo-1");
+  assert.deepEqual(second, { chunksEmbedded: 0, chunksUnchanged: 1, chunksRemoved: 0, available: true });
+});
+
+// Phase 3.2's CodeSearchStore behavioural contract, run against the fake. The same
+// body runs against SqliteCodeSearchStore in packages/storage.
+runCodeSearchStoreConformance({
+  name: "FakeCodeSearchStore",
+  async setup(seeds) {
+    const store = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+    const repositoryIds = new Set<string>();
+    seeds.forEach((seed, i) => {
+      const repositoryId = seed.repositoryId ?? "repo-default";
+      repositoryIds.add(repositoryId);
+      store.index(
+        {
+          id: `chunk-${i}`,
+          fileId: `file-${i}`,
+          repositoryId,
+          scope: seed.scope,
+          relativePath: seed.relativePath,
+          chunkIndex: 0,
+          startLine: 1,
+          endLine: 1,
+          content: seed.content,
+          contentHash: `hash-${i}`,
+        },
+        seed.language ?? null,
+      );
+    });
+    for (const repositoryId of repositoryIds) {
+      await store.syncEmbeddings(repositoryId);
+    }
     return { store, cleanup: () => {} };
   },
 });
