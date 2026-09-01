@@ -10,6 +10,7 @@ import {
   FeedbackEventSchema,
   MemoryMutationEventSchema,
   ContextEventMemorySchema,
+  ContextEventSourceSchema,
   FEEDBACK_REASONS,
   assertContextMembershipConsistent,
 } from "./events.js";
@@ -382,4 +383,116 @@ test("CompileContextInput: redundancyPairs accepts a valid SimilarityPair array"
     redundancyPairs: [{ a, b, similarity: 0.8 }],
   });
   assert.equal(input.redundancyPairs?.length, 1);
+});
+
+// --- Phase 3.4: Context sources (code/dependency) ----------------------
+
+function baseContextEventSource(overrides: Record<string, unknown> = {}) {
+  return {
+    sourceType: "code",
+    sourceId: "src-1",
+    repositoryId: "repo-1",
+    fileId: "file-1",
+    relativePath: "src/index.ts",
+    relation: null,
+    depth: null,
+    included: true,
+    rank: 1,
+    tokenCount: 100,
+    ...overrides,
+  };
+}
+
+test("ContextEventSource: accepts a well-formed code source with relation: null", () => {
+  const source = ContextEventSourceSchema.parse(baseContextEventSource());
+  assert.equal(source.sourceType, "code");
+  assert.equal(source.relation, null);
+  assert.equal(source.included, true);
+});
+
+test("ContextEventSource: accepts a well-formed dependency source with relation set", () => {
+  const source = ContextEventSourceSchema.parse(
+    baseContextEventSource({
+      sourceType: "dependency",
+      relation: "dependency",
+      depth: null,
+    }),
+  );
+  assert.equal(source.sourceType, "dependency");
+  assert.equal(source.relation, "dependency");
+});
+
+test("ContextEventSource: accepts all three dependency relations", () => {
+  for (const relation of ["dependency", "dependent", "impact"] as const) {
+    const source = ContextEventSourceSchema.parse(
+      baseContextEventSource({
+        sourceType: "dependency",
+        relation,
+        depth: relation === "impact" ? 1 : null,
+      }),
+    );
+    assert.equal(source.relation, relation);
+  }
+});
+
+test("ContextEventSource: rejects code source with relation set", () => {
+  assert.throws(() =>
+    ContextEventSourceSchema.parse(
+      baseContextEventSource({
+        sourceType: "code",
+        relation: "dependency",
+      }),
+    ),
+  );
+});
+
+test("ContextEventSource: rejects dependency source with relation: null", () => {
+  assert.throws(() =>
+    ContextEventSourceSchema.parse(
+      baseContextEventSource({
+        sourceType: "dependency",
+        relation: null,
+      }),
+    ),
+  );
+});
+
+test("ContextEventSource: rejects an unknown sourceType", () => {
+  assert.throws(() =>
+    ContextEventSourceSchema.parse(
+      baseContextEventSource({
+        sourceType: "memory",
+      }),
+    ),
+  );
+});
+
+test("ContextEventSource: rejects an unknown relation value", () => {
+  assert.throws(() =>
+    ContextEventSourceSchema.parse(
+      baseContextEventSource({
+        sourceType: "dependency",
+        relation: "cross-references",
+      }),
+    ),
+  );
+});
+
+test("ContextEventSource: relation and depth default to null when omitted", () => {
+  const source = ContextEventSourceSchema.parse({
+    sourceType: "code",
+    sourceId: "src-1",
+    repositoryId: "repo-1",
+    fileId: "file-1",
+    relativePath: "src/index.ts",
+    included: true,
+  });
+  assert.equal(source.relation, null);
+  assert.equal(source.depth, null);
+  assert.equal(source.rank, null);
+  assert.equal(source.tokenCount, null);
+});
+
+test("ContextEventSource: rejects unrecognized fields (strict)", () => {
+  assert.throws(() => ContextEventSourceSchema.parse(baseContextEventSource({ extra: "field" })));
 });

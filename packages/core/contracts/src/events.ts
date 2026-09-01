@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ScopeRefSchema } from "./scope.js";
 import { ProvenanceSchema } from "./memory.js";
+import { DEPENDENCY_RELATIONS, type DependencyRelation } from "./context-source.js";
 
 // Event provenance chain (PHASE_1_SPEC.md Learning/Outcome Telemetry):
 //   RetrievalEvent (all candidates considered)
@@ -176,3 +177,33 @@ export const MemoryMutationEventSchema = z
   })
   .strict();
 export type MemoryMutationEvent = z.infer<typeof MemoryMutationEventSchema>;
+
+export const CONTEXT_SOURCE_TYPES = ["code", "dependency"] as const;
+export type ContextSourceType = (typeof CONTEXT_SOURCE_TYPES)[number];
+
+/**
+ * Additive telemetry for code/dependency delivery (PHASE_3_SPEC.md Phase 3.4,
+ * Telemetry Design) -- context_events/context_event_memories are untouched by
+ * this. Mirrors ContextEventMemory's shape/spirit but is not nested on
+ * ContextEvent the way `memories` is: a mixed-source delivery can have dozens
+ * of these, so they are fetched separately via EventStore.getContextEventSources,
+ * not eagerly hydrated onto every ContextEvent read.
+ */
+export const ContextEventSourceSchema = z
+  .object({
+    sourceType: z.enum(CONTEXT_SOURCE_TYPES),
+    sourceId: z.string().min(1),
+    repositoryId: z.string().min(1),
+    fileId: z.string().min(1),
+    relativePath: z.string().min(1),
+    relation: z.enum(DEPENDENCY_RELATIONS).nullable().default(null),
+    depth: z.number().int().positive().nullable().default(null),
+    included: z.boolean(),
+    rank: z.number().int().positive().nullable().default(null),
+    tokenCount: z.number().int().nonnegative().nullable().default(null),
+  })
+  .strict()
+  .refine((s) => (s.sourceType === "dependency") === (s.relation !== null), {
+    message: "relation must be set if and only if sourceType is 'dependency'",
+  });
+export type ContextEventSource = z.infer<typeof ContextEventSourceSchema>;
