@@ -6,6 +6,7 @@ import type {
   OutcomeEvent,
   FeedbackEvent,
   MemoryMutationEvent,
+  ContextEventSource,
 } from "@brain/contracts";
 
 /**
@@ -56,5 +57,13 @@ export class EventService {
 
   getMutationsForMemory(memoryId: string): Promise<MemoryMutationEvent[]> {
     return this.store.getMutationsForMemory(memoryId);
+  }
+
+  recordContextSources(contextEventId: string, sources: ContextEventSource[]): Promise<void> {
+    return this.store.recordContextSources(contextEventId, sources);
+  }
+
+  getContextEventSources(contextEventId: string): Promise<ContextEventSource[]> {
+    return this.store.getContextEventSources(contextEventId);
   }
 }

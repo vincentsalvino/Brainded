@@ -7,6 +7,7 @@ import type {
   OutcomeEvent,
   FeedbackEvent,
   MemoryMutationEvent,
+  ContextEventSource,
 } from "@brain/contracts";
 import { assertContextMembershipConsistent } from "@brain/contracts";
 
@@ -17,6 +18,7 @@ export class FakeEventStore implements EventStore {
   readonly outcomeEvents: OutcomeEvent[] = [];
   readonly feedbackEvents: FeedbackEvent[] = [];
   readonly mutationEvents: MemoryMutationEvent[] = [];
+  readonly contextEventSources: (ContextEventSource & { contextEventId: string })[] = [];
 
   async recordRetrieval(event: Omit<RetrievalEvent, "id" | "timestamp">): Promise<RetrievalEvent> {
     const full: RetrievalEvent = { ...event, id: randomUUID(), timestamp: new Date().toISOString() };
@@ -71,5 +73,13 @@ export class FakeEventStore implements EventStore {
 
   async getMutationsForMemory(memoryId: string): Promise<MemoryMutationEvent[]> {
     return this.mutationEvents.filter((e) => e.memoryId === memoryId);
+  }
+
+  async recordContextSources(contextEventId: string, sources: ContextEventSource[]): Promise<void> {
+    for (const source of sources) this.contextEventSources.push({ ...source, contextEventId });
+  }
+
+  async getContextEventSources(contextEventId: string): Promise<ContextEventSource[]> {
+    return this.contextEventSources.filter((s) => s.contextEventId === contextEventId);
   }
 }

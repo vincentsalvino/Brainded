@@ -349,3 +349,44 @@ test("P2-005: getContextEvent returns null for an unknown id", async () => {
   assert.equal(await events.getContextEvent(randomUUID()), null);
   db.close();
 });
+
+// --- Phase 3.4: context_event_sources -----------------------------------
+
+test("recordContextSources: writes rows readable back via getContextEventSources", async () => {
+  const db = openDatabase(":memory:");
+  const store = new SqliteEventStore(db.raw);
+  const retrieval = await store.recordRetrieval({ scope: globalScope(), queryText: "q", candidateIds: [], taskId: null });
+  const context = await store.recordContext({
+    retrievalEventId: retrieval.id,
+    scope: globalScope(),
+    taskId: null,
+    includedMemoryIds: [],
+    omittedMemoryIds: [],
+    tokenCount: 0,
+    memories: [],
+    candidateCount: null,
+    candidateTokenCount: null,
+    retrievalMs: null,
+    rankingMs: null,
+    compileMs: null,
+    optimizeMs: null,
+  });
+
+  await store.recordContextSources(context.id, [
+    { sourceType: "code", sourceId: "chunk-1", repositoryId: "repo-1", fileId: "file-1", relativePath: "src/a.ts", relation: null, depth: null, included: true, rank: 1, tokenCount: 40 },
+    { sourceType: "dependency", sourceId: "file-1:file-2:dependency", repositoryId: "repo-1", fileId: "file-2", relativePath: "src/b.ts", relation: "dependency", depth: null, included: false, rank: null, tokenCount: null },
+  ]);
+
+  const rows = await store.getContextEventSources(context.id);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]?.sourceType, "code");
+  assert.equal(rows[1]?.relation, "dependency");
+  db.close();
+});
+
+test("getContextEventSources: an unknown contextEventId returns an empty array, not an error", async () => {
+  const db = openDatabase(":memory:");
+  const store = new SqliteEventStore(db.raw);
+  assert.deepEqual(await store.getContextEventSources("00000000-0000-0000-0000-000000000000"), []);
+  db.close();
+});

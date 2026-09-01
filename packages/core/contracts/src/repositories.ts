@@ -8,6 +8,7 @@ import type {
   OutcomeEvent,
   FeedbackEvent,
   MemoryMutationEvent,
+  ContextEventSource,
 } from "./events.js";
 import type { CodebaseRecord, CodeFileRecord, CodeChunkRecord } from "./codebase.js";
 import type { CodeSearchQuery, CodeSearchResult, CodeSyncResult } from "./code-search.js";
@@ -66,6 +67,9 @@ export interface EventStore {
   getEventsForTask(taskId: string): Promise<TaskEvents>;
   getEventsForMemory(memoryId: string): Promise<FeedbackEvent[]>;
   getMutationsForMemory(memoryId: string): Promise<MemoryMutationEvent[]>;
+  /** Additive code/dependency delivery telemetry -- see events.ts's ContextEventSource. */
+  recordContextSources(contextEventId: string, sources: ContextEventSource[]): Promise<void>;
+  getContextEventSources(contextEventId: string): Promise<ContextEventSource[]>;
 }
 
 export interface EmbeddingProvider {

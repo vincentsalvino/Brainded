@@ -18,6 +18,16 @@ test("fixtures: oneOfEachMemoryType covers all 12 types", () => {
   assert.equal(new Set(records.map((r) => r.type)).size, 12);
 });
 
+test("FakeEventStore: recordContextSources tracked per contextEventId, readable back", async () => {
+  const store = new FakeEventStore();
+  await store.recordContextSources("ctx-1", [
+    { sourceType: "code", sourceId: "chunk-1", repositoryId: "repo-1", fileId: "file-1", relativePath: "a.ts", relation: null, depth: null, included: true, rank: 1, tokenCount: 10 },
+  ]);
+  const rows = await store.getContextEventSources("ctx-1");
+  assert.equal(rows.length, 1);
+  assert.equal(await store.getContextEventSources("ctx-2").then((r) => r.length), 0);
+});
+
 test("FakeMemoryRepository: create records exactly one mutation event", async () => {
   const events = new FakeEventStore();
   const repo = new FakeMemoryRepository(events);

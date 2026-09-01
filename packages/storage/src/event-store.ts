@@ -9,6 +9,7 @@ import type {
   OutcomeEvent,
   FeedbackEvent,
   MemoryMutationEvent,
+  ContextEventSource,
 } from "@brain/contracts";
 import { assertContextMembershipConsistent } from "@brain/contracts";
 
@@ -82,6 +83,20 @@ interface MutationRow {
   summary: string | null;
 }
 
+interface ContextSourceRow {
+  context_event_id: string;
+  source_type: string;
+  source_id: string;
+  repository_id: string;
+  file_id: string;
+  relative_path: string;
+  relation: string | null;
+  depth: number | null;
+  included: number;
+  rank: number | null;
+  token_count: number | null;
+}
+
 function retrievalFromRow(r: RetrievalRow): RetrievalEvent {
   return {
     id: r.id,
@@ -151,6 +166,21 @@ function feedbackFromRow(r: FeedbackRow): FeedbackEvent {
     useful: r.useful === null ? null : r.useful === 1,
     reason: r.reason as FeedbackEvent["reason"],
     notes: r.notes,
+  };
+}
+
+function contextSourceFromRow(r: ContextSourceRow): ContextEventSource {
+  return {
+    sourceType: r.source_type as ContextEventSource["sourceType"],
+    sourceId: r.source_id,
+    repositoryId: r.repository_id,
+    fileId: r.file_id,
+    relativePath: r.relative_path,
+    relation: r.relation as ContextEventSource["relation"],
+    depth: r.depth,
+    included: r.included === 1,
+    rank: r.rank,
+    tokenCount: r.token_count,
   };
 }
 
@@ -339,6 +369,36 @@ export class SqliteEventStore implements EventStore {
     const full: MemoryMutationEvent = { ...event, id: randomUUID(), timestamp: new Date().toISOString() };
     insertMutationEventRow(this.db, full);
     return full;
+  }
+
+  async recordContextSources(contextEventId: string, sources: ContextEventSource[]): Promise<void> {
+    const insert = this.db.prepare(
+      `INSERT INTO context_event_sources (context_event_id, source_type, source_id, repository_id, file_id, relative_path, relation, depth, included, rank, token_count) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    );
+    this.db.transaction(() => {
+      for (const source of sources) {
+        insert.run(
+          contextEventId,
+          source.sourceType,
+          source.sourceId,
+          source.repositoryId,
+          source.fileId,
+          source.relativePath,
+          source.relation,
+          source.depth,
+          source.included ? 1 : 0,
+          source.rank,
+          source.tokenCount,
+        );
+      }
+    })();
+  }
+
+  async getContextEventSources(contextEventId: string): Promise<ContextEventSource[]> {
+    const rows = this.db
+      .prepare(`SELECT * FROM context_event_sources WHERE context_event_id = ? ORDER BY source_type, rank ASC`)
+      .all(contextEventId) as ContextSourceRow[];
+    return rows.map(contextSourceFromRow);
   }
 
   async getEventsForTask(taskId: string): Promise<TaskEvents> {
