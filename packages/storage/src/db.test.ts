@@ -84,12 +84,25 @@ test("migrations: a fresh database applies every migration, in filename order", 
     "0001_initial_schema.sql",
     "0002_phase2_measurement.sql",
     "0003_codebase_index.sql",
+    "0004_codebase_search.sql",
   ]);
   const tables = (
     db.raw.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as { name: string }[]
   ).map((t) => t.name);
   assert.ok(tables.includes("context_event_memories"));
   assert.ok(tables.includes("schema_migrations"));
+  assert.ok(tables.includes("code_chunks_fts"));
+  assert.ok(tables.includes("code_embedding_state"));
+  db.close();
+});
+
+test("migrations: code_chunk_vectors (vec0) exists when the vector backend is available", () => {
+  const db = openDatabase(":memory:");
+  const tables = (
+    db.raw.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as { name: string }[]
+  ).map((t) => t.name);
+  assert.equal(db.vectorSearchAvailable, true);
+  assert.ok(tables.includes("code_chunk_vectors"));
   db.close();
 });
 
@@ -128,6 +141,7 @@ test("migrations: a Phase 1-style database (0001 applied, no ledger) upgrades wi
       "0001_initial_schema.sql",
       "0002_phase2_measurement.sql",
       "0003_codebase_index.sql",
+      "0004_codebase_search.sql",
     ]);
 
     assert.equal(

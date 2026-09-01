@@ -45,7 +45,10 @@ export function openDatabase(path: string): BrainDatabase {
   }
 
   applyMigrations(db);
-  if (vectorSearchAvailable) ensureVectorTable(db);
+  if (vectorSearchAvailable) {
+    ensureVectorTable(db);
+    ensureCodeVectorTable(db);
+  }
 
   return {
     raw: db,
@@ -119,6 +122,18 @@ function ensureVectorTable(db: Database.Database): void {
   db.exec(
     `CREATE VIRTUAL TABLE IF NOT EXISTS memory_vectors USING vec0(` +
       `memory_id TEXT PRIMARY KEY, ` +
+      `embedding float[${EMBEDDING_DIMENSIONS}]` +
+      `)`,
+  );
+}
+
+// Phase 3.2. Same reason memory_vectors is created here rather than in a migration
+// file: vec0 DDL needs the extension already loaded, which migrations (plain SQL,
+// applied before this point) cannot guarantee.
+function ensureCodeVectorTable(db: Database.Database): void {
+  db.exec(
+    `CREATE VIRTUAL TABLE IF NOT EXISTS code_chunk_vectors USING vec0(` +
+      `chunk_id TEXT PRIMARY KEY, ` +
       `embedding float[${EMBEDDING_DIMENSIONS}]` +
       `)`,
   );

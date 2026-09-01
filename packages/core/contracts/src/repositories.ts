@@ -10,6 +10,7 @@ import type {
   MemoryMutationEvent,
 } from "./events.js";
 import type { CodebaseRecord, CodeFileRecord, CodeChunkRecord } from "./codebase.js";
+import type { CodeSearchQuery, CodeSearchResult, CodeSyncResult } from "./code-search.js";
 
 // Behavioral contracts only -- implementations live in packages/storage.
 // packages/core/* depend on these interfaces, never on a concrete implementation
@@ -89,4 +90,26 @@ export interface CodebaseRepository {
     chunks: CodeChunkRecord[],
   ): Promise<{ chunksCreated: number; chunksRemoved: number }>;
   removeFile(fileId: string): Promise<{ chunksRemoved: number }>;
+}
+
+/**
+ * Phase 3.2. Deliberately separate from RetrievalStore, not an overload of it --
+ * see PHASE_3_SPEC.md Part B (Candidate Ownership Decision, CASE B): CodeSearchResult
+ * is not a Candidate, so a code search store is not a RetrievalStore. Mirrors
+ * RetrievalStore's two-method shape (lexicalSearch/semanticSearch, same degradation
+ * policy: semantic failure throws for the caller to catch and degrade, never silently
+ * swallowed here) plus syncEmbeddings, kept on this interface because it is the same
+ * "code search index" concern (FTS5 + vector), not because it shares RetrievalStore's
+ * contract -- @brain/codebase's CodebaseRepository is untouched by this addition.
+ */
+export interface CodeSearchStore {
+  lexicalSearch(query: CodeSearchQuery): Promise<CodeSearchResult[]>;
+  semanticSearch(query: CodeSearchQuery): Promise<CodeSearchResult[]>;
+  /**
+   * Incremental: embeds only chunks new or changed since the last sync (by
+   * contentHash), removes vector entries for chunks no longer present. Never
+   * throws on an unavailable vector backend -- returns `{available: false}`,
+   * mirroring RetrievalStore.findSimilarPairs' existing degradation shape.
+   */
+  syncEmbeddings(repositoryId: string): Promise<CodeSyncResult>;
 }

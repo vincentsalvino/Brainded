@@ -3,6 +3,7 @@ import {
   MEMORY_TYPES,
   type MemoryRecord,
   type MemoryType,
+  type CodeSearchResult,
   globalScope,
   projectScope,
   sessionScope,
@@ -53,3 +54,23 @@ export function crossScopeFixture(): { global: MemoryRecord; projectA: MemoryRec
 }
 
 export const SAMPLE_SCOPES: ScopeRef[] = [globalScope(), projectScope("project-a"), sessionScope("session-x")];
+
+let codeChunkCounter = 0;
+
+/** A valid CodeSearchResult with sensible defaults, overridable per field. */
+export function buildCodeSearchResult(overrides: Partial<CodeSearchResult> = {}): CodeSearchResult {
+  const n = codeChunkCounter++;
+  return {
+    chunkId: `chunk-${n}`,
+    fileId: `file-${n}`,
+    repositoryId: "repo-1",
+    scope: globalScope(),
+    relativePath: `src/example-${n}.ts`,
+    language: "typescript",
+    startLine: 1,
+    endLine: 5,
+    content: "export function example() {}",
+    signals: { lexicalScore: 0.5 },
+    ...overrides,
+  };
+}

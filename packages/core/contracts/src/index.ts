@@ -6,3 +6,4 @@ export * from "./context.js";
 export * from "./events.js";
 export * from "./repositories.js";
 export * from "./codebase.js";
+export * from "./code-search.js";

@@ -5,3 +5,5 @@ export * from "./fake-event-store.js";
 export * from "./fake-embedding-provider.js";
 export * from "./store-conformance.js";
 export * from "./fake-codebase-repository.js";
+export * from "./fake-code-search-store.js";
+export * from "./code-store-conformance.js";
