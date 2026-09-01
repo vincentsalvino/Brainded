@@ -7,3 +7,4 @@ export * from "./events.js";
 export * from "./repositories.js";
 export * from "./codebase.js";
 export * from "./code-search.js";
+export * from "./code-dependency.js";

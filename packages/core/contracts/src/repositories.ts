@@ -11,6 +11,7 @@ import type {
 } from "./events.js";
 import type { CodebaseRecord, CodeFileRecord, CodeChunkRecord } from "./codebase.js";
 import type { CodeSearchQuery, CodeSearchResult, CodeSyncResult } from "./code-search.js";
+import type { CodeDependencyEdge, DependencyResolution } from "./code-dependency.js";
 
 // Behavioral contracts only -- implementations live in packages/storage.
 // packages/core/* depend on these interfaces, never on a concrete implementation
@@ -112,4 +113,36 @@ export interface CodeSearchStore {
    * mirroring RetrievalStore.findSimilarPairs' existing degradation shape.
    */
   syncEmbeddings(repositoryId: string): Promise<CodeSyncResult>;
+}
+
+/**
+ * Phase 3.3. Raw edge access + write/sync primitives -- separate from
+ * DependencyGraphService (packages/codebase), which owns graph semantics
+ * (internal-only filtering, transitive traversal, cycle safety). This interface
+ * returns edges of ANY resolution (unresolved/external included -- diagnostic
+ * value, per PHASE_3_SPEC.md); the graph service filters to resolution==='internal'
+ * for traversal. repositoryId is the isolation key, matching CodebaseRepository's
+ * own convention (not a separately-threaded ScopeRef parameter).
+ */
+export interface CodeDependencyStore {
+  /**
+   * Atomic delete-old/insert-new for one source file's outgoing edges, plus the
+   * contentHash tracking row -- same single-primitive shape as
+   * CodebaseRepository.replaceFile (covers both "new file" and "changed file").
+   */
+  replaceOutgoingEdges(
+    repositoryId: string,
+    sourceFileId: string,
+    contentHash: string,
+    edges: CodeDependencyEdge[],
+  ): Promise<{ edgesCreated: number; edgesRemoved: number }>;
+  /** Bulk, not per-file: the synchronizer needs the whole repository's tracked state at once to decide what changed. */
+  listDependencyState(repositoryId: string): Promise<{ fileId: string; contentHash: string }[]>;
+  listEdges(repositoryId: string): Promise<CodeDependencyEdge[]>;
+  /** Targeted update for the re-resolve pass -- never rewrites a whole file's edge set just to fix one resolution. */
+  updateEdgeResolution(edgeId: string, resolution: DependencyResolution, targetFileId: string | null): Promise<void>;
+  dependenciesOf(repositoryId: string, fileId: string): Promise<CodeDependencyEdge[]>;
+  dependentsOf(repositoryId: string, fileId: string): Promise<CodeDependencyEdge[]>;
+  /** Removes a source file's outgoing edges and its dependency-state row -- used when the file itself is gone from the codebase index. */
+  removeFileState(repositoryId: string, sourceFileId: string): Promise<{ edgesRemoved: number }>;
 }

@@ -304,3 +304,17 @@ test("indexing requires zero network calls: no networking module is imported any
   }
   assert.deepEqual(offenders, []);
 });
+
+test("REGRESSION guard (Phase 3.3 invariant 4): no SQLite import anywhere in this package's src -- dependency extraction/resolution/sync stays pure JS + CodebaseRepository/CodeDependencyStore", () => {
+  const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
+  const forbidden = [/from\s+["']better-sqlite3["']/, /from\s+["']sqlite-vec["']/];
+  const offenders: string[] = [];
+  for (const name of readdirSync(srcDir)) {
+    if (!name.endsWith(".ts") || name.endsWith(".test.ts")) continue;
+    const content = readFileSync(join(srcDir, name), "utf-8");
+    for (const pattern of forbidden) {
+      if (pattern.test(content)) offenders.push(`${name}: ${pattern}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});

@@ -6,10 +6,12 @@ import { FakeMemoryRepository } from "./fake-memory-repository.js";
 import { FakeRetrievalStore } from "./fake-retrieval-store.js";
 import { FakeCodebaseRepository } from "./fake-codebase-repository.js";
 import { FakeCodeSearchStore } from "./fake-code-search-store.js";
+import { FakeCodeDependencyStore } from "./fake-code-dependency-store.js";
 import { FakeEmbeddingProvider } from "./fake-embedding-provider.js";
 import { oneOfEachMemoryType, crossScopeFixture, buildMemoryRecord } from "./fixtures.js";
 import { runRetrievalStoreConformance } from "./store-conformance.js";
 import { runCodeSearchStoreConformance } from "./code-store-conformance.js";
+import { runCodeDependencyStoreConformance } from "./code-dependency-conformance.js";
 
 test("fixtures: oneOfEachMemoryType covers all 12 types", () => {
   const records = oneOfEachMemoryType();
@@ -221,5 +223,14 @@ runCodeSearchStoreConformance({
       await store.syncEmbeddings(repositoryId);
     }
     return { store, cleanup: () => {} };
+  },
+});
+
+// Phase 3.3's CodeDependencyStore behavioural contract, run against the fake. The
+// same body runs against SqliteCodeDependencyStore in packages/storage.
+runCodeDependencyStoreConformance({
+  name: "FakeCodeDependencyStore",
+  async setup() {
+    return { store: new FakeCodeDependencyStore(), cleanup: () => {} };
   },
 });

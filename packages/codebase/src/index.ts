@@ -4,3 +4,8 @@ export * from "./classify.js";
 export * from "./ignore.js";
 export * from "./discovery.js";
 export * from "./indexer.js";
+export * from "./dependency-mask.js";
+export * from "./dependency-extract.js";
+export * from "./dependency-resolve.js";
+export * from "./dependency-synchronizer.js";
+export * from "./dependency-graph.js";
