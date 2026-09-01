@@ -4,6 +4,7 @@ import { globalScope, projectScope, sessionScope } from "@brain/contracts";
 import { FakeEventStore } from "./fake-event-store.js";
 import { FakeMemoryRepository } from "./fake-memory-repository.js";
 import { FakeRetrievalStore } from "./fake-retrieval-store.js";
+import { FakeCodebaseRepository } from "./fake-codebase-repository.js";
 import { oneOfEachMemoryType, crossScopeFixture, buildMemoryRecord } from "./fixtures.js";
 import { runRetrievalStoreConformance } from "./store-conformance.js";
 
@@ -71,6 +72,62 @@ test("FakeRetrievalStore: semanticSearch failure can be simulated for degradatio
   const store = new FakeRetrievalStore();
   store.simulateSemanticFailure(true);
   await assert.rejects(() => store.semanticSearch({ text: "anything", scope: globalScope(), limit: 10 }));
+});
+
+test("FakeCodebaseRepository: findRepository is scope-isolated by (scope, rootPath)", async () => {
+  const repo = new FakeCodebaseRepository();
+  const created = await repo.createRepository(projectScope("project-a"), "/repo");
+  assert.equal((await repo.findRepository(projectScope("project-a"), "/repo"))?.id, created.id);
+  assert.equal(await repo.findRepository(projectScope("project-b"), "/repo"), null);
+});
+
+test("FakeCodebaseRepository: replaceFile upserts by id and wholesale-replaces chunks", async () => {
+  const repo = new FakeCodebaseRepository();
+  const { id: repositoryId } = await repo.createRepository(globalScope(), "/repo");
+  const fileBase = {
+    id: "file-1",
+    repositoryId,
+    scope: globalScope(),
+    relativePath: "a.ts",
+    language: "typescript",
+    sizeBytes: 1,
+    indexedAt: new Date().toISOString(),
+  };
+  const chunkBase = { fileId: "file-1", repositoryId, scope: globalScope(), relativePath: "a.ts", startLine: 1, endLine: 1, content: "x" };
+
+  await repo.replaceFile(
+    { ...fileBase, contentHash: "h1" },
+    [{ ...chunkBase, id: "c1", chunkIndex: 0, contentHash: "h1" }],
+  );
+  const { chunksRemoved } = await repo.replaceFile(
+    { ...fileBase, contentHash: "h2" },
+    [{ ...chunkBase, id: "c2", chunkIndex: 0, contentHash: "h2" }],
+  );
+  assert.equal(chunksRemoved, 1);
+  const files = await repo.listFiles(repositoryId);
+  assert.equal(files.length, 1, "same file id must update in place, not duplicate");
+  assert.equal(files[0]?.contentHash, "h2");
+});
+
+test("FakeCodebaseRepository: removeFile deletes the file and reports its chunk count", async () => {
+  const repo = new FakeCodebaseRepository();
+  const { id: repositoryId } = await repo.createRepository(globalScope(), "/repo");
+  const file = {
+    id: "file-1",
+    repositoryId,
+    scope: globalScope(),
+    relativePath: "a.ts",
+    language: null,
+    sizeBytes: 1,
+    contentHash: "h1",
+    indexedAt: new Date().toISOString(),
+  };
+  await repo.replaceFile(file, [
+    { id: "c1", fileId: "file-1", repositoryId, scope: globalScope(), relativePath: "a.ts", chunkIndex: 0, startLine: 1, endLine: 1, content: "x", contentHash: "h1" },
+  ]);
+  const { chunksRemoved } = await repo.removeFile("file-1");
+  assert.equal(chunksRemoved, 1);
+  assert.deepEqual(await repo.listFiles(repositoryId), []);
 });
 
 // P2-001: the shared RetrievalStore behavioural contract, run against the fake.
