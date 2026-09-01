@@ -10,7 +10,7 @@ import { BrainError } from "./errors.js";
 
 function setup(
   seedRecords: ReturnType<typeof buildMemoryRecord>[] = [],
-  redundancy?: { enabled: boolean; candidateFloor: number; highConfidenceThreshold: number; containmentThreshold: number },
+  redundancy?: { enabled: boolean; candidateFloor: number; containmentThreshold: number },
 ) {
   const eventStore = new FakeEventStore();
   const memoryRepo = new FakeMemoryRepository(eventStore);
@@ -453,11 +453,12 @@ test("redundancy disabled by default: getContext output carries no redundantWith
 
 // STRONG/NEAR_DUPLICATE content reused verbatim from
 // core/test-fixtures/store-conformance.ts -- spiked and confirmed their
-// Jaccard word-overlap similarity is 0.2105 under FakeRetrievalStore.
-// candidateFloor == highConfidenceThreshold == 0.15 collapses the hybrid
-// policy to its simple cosine-only branch (this test proves end-to-end
-// wiring, not the lexical-containment classifier -- that has its own
-// dedicated tests in @brain/retrieval), reliably catching this pair with margin.
+// Jaccard word-overlap similarity is 0.2105 under FakeRetrievalStore, and
+// their real lexical containment is 3/7 ~= 0.4286 (>= 0.4). candidateFloor
+// 0.15 reliably catches this pair on cosine with margin (this test proves
+// end-to-end wiring, not the lexical-containment classifier -- that has its
+// own dedicated tests in @brain/retrieval); containmentThreshold 0.4 is then
+// independently satisfied by the real content, exactly as H2 requires.
 test("redundancy enabled: a near-duplicate lower-ranked candidate is marked redundantWith under an ample budget", async () => {
   const strong = buildMemoryRecord({
     content: "notes-api: database access must go through the repository layer, never directly from route handlers",
@@ -469,7 +470,7 @@ test("redundancy enabled: a near-duplicate lower-ranked candidate is marked redu
     scope: projectScope("notes-api"),
     confidence: 1,
   });
-  const { gateway } = setup([strong, nearDuplicate], { enabled: true, candidateFloor: 0.15, highConfidenceThreshold: 0.15, containmentThreshold: 0.4 });
+  const { gateway } = setup([strong, nearDuplicate], { enabled: true, candidateFloor: 0.15, containmentThreshold: 0.4 });
   const delivery = await gateway.getContext({
     task: "database access repository pattern",
     scope: projectScope("notes-api"),
@@ -503,7 +504,7 @@ test("redundancy degradation: a store that throws on findSimilarPairs never fail
     new RetrievalService(retrievalStore),
     new EventService(eventStore),
     { vectorSearchAvailable: true },
-    { enabled: true, candidateFloor: 0.5, highConfidenceThreshold: 0.8, containmentThreshold: 0.4 },
+    { enabled: true, candidateFloor: 0.5, containmentThreshold: 0.4 },
   );
   const delivery = await gateway.getContext({ task: "anything", scope: globalScope(), budget: { maxTokens: 500 } });
   assert.ok(delivery.items.length > 0);

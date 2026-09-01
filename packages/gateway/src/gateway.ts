@@ -35,13 +35,14 @@ const DEFAULT_CANDIDATE_LIMIT = 50;
 const PROJECT_COUNT_LIMIT = 500;
 
 /**
- * 2C.7. Redundancy config is `{ enabled }` plus the full `NearDuplicatePolicy`
- * (candidateFloor/highConfidenceThreshold/containmentThreshold) re-exported
+ * 2C.7/2C.10. Redundancy config is `{ enabled }` plus the full
+ * `NearDuplicatePolicy` (candidateFloor/containmentThreshold) re-exported
  * from @brain/retrieval -- a single flat shape, not a `threshold` field that
  * would otherwise have to mean two different things (the floor passed to
- * storage vs. the cosine bar for an unconditional duplicate call). See
- * @brain/retrieval's lexical-containment.ts for the policy's own history and
- * the Phase 2C.6 evaluation it was validated against.
+ * storage vs. the containment bar for a duplicate call). See
+ * @brain/retrieval's lexical-containment.ts for the policy's own history --
+ * 2C.10 removed the unconditional cosine-only bypass this comment used to
+ * describe a third field for.
  */
 export type RedundancyConfig = { enabled: boolean } & NearDuplicatePolicy;
 

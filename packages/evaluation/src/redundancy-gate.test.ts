@@ -19,13 +19,16 @@ const CANDIDATE_LIMIT = 50;
 /**
  * 2C.7: this whole file predates the hybrid policy and tests a single
  * cosine-like threshold against FakeEmbeddingProvider's own similarity
- * scale (not real cosine). candidateFloor === highConfidenceThreshold
- * collapses the hybrid rule back to that exact plain-threshold check --
- * the lexical containment branch is never reached, preserving every
- * assertion below unchanged.
+ * scale (not real cosine). containmentThreshold: 0 collapses H2 back to
+ * that exact plain-threshold check -- containmentCoefficient() never
+ * returns a value below 0, so the containment gate is always satisfied
+ * and only candidateFloor decides, preserving every assertion below
+ * unchanged (2C.10: this replaces the old candidateFloor ===
+ * highConfidenceThreshold trick, which relied on a bypass that no longer
+ * exists).
  */
 function simplePolicy(threshold: number): NearDuplicatePolicy {
-  return { candidateFloor: threshold, highConfidenceThreshold: threshold, containmentThreshold: 0 };
+  return { candidateFloor: threshold, containmentThreshold: 0 };
 }
 
 interface Seeded {

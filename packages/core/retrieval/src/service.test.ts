@@ -169,7 +169,7 @@ test("getRedundancyPairs: delegates to the store and re-orients by rank", async 
     { memoryId: a.id, record: a, score: 1, signals: { diversity: null }, rank: 1 },
     { memoryId: b.id, record: b, score: 0.5, signals: { diversity: null }, rank: 2 },
   ];
-  const pairs = await service.getRedundancyPairs(rankedResults, { candidateFloor: 0, highConfidenceThreshold: 1.1, containmentThreshold: 0 });
+  const pairs = await service.getRedundancyPairs(rankedResults, { candidateFloor: 0, containmentThreshold: 0 });
   assert.ok(pairs.length > 0);
   assert.equal(pairs[0]?.a, a.id, "the higher-ranked memory (rank 1) must be `a`");
 });
@@ -180,10 +180,11 @@ test("getRedundancyPairs: fewer than two ranked results returns no pairs, no err
   assert.deepEqual(await service.getRedundancyPairs([], DEFAULT_NEAR_DUPLICATE_POLICY), []);
 });
 
-// --- 2C.7: hybrid near-duplicate classification wired into the pipeline ----
-// findSimilarPairs must receive candidateFloor (0.75), never
-// highConfidenceThreshold (0.80) -- a [0.75, 0.80) pair must reach the
-// classifier at all, or it can never be corroborated by containment.
+// --- 2C.7/2C.10: hybrid near-duplicate classification wired into the pipeline
+// findSimilarPairs must receive candidateFloor (0.75) -- every candidate-floor
+// pair must reach the classifier so containment can corroborate it (2C.10's H2
+// removed the old unconditional-cosine bypass entirely; candidateFloor is now
+// the only threshold storage ever sees).
 
 class FixedSimilarityStore extends FakeRetrievalStore {
   lastMinSimilarity: number | undefined;
