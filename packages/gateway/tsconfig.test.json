@@ -13,7 +13,8 @@
     { "path": "../core/context" },
     { "path": "../core/token" },
     { "path": "../core/learning" },
-    { "path": "../core/test-fixtures" }
+    { "path": "../core/test-fixtures" },
+    { "path": "../codebase" }
   ],
   "include": ["src/**/*.ts"]
 }

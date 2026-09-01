@@ -13,7 +13,8 @@
     { "path": "../core/ranking" },
     { "path": "../core/context" },
     { "path": "../core/token" },
-    { "path": "../core/learning" }
+    { "path": "../core/learning" },
+    { "path": "../codebase" }
   ],
   "include": ["src/**/*.ts"],
   "exclude": ["**/*.test.ts", "dist"]

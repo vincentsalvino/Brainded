@@ -5,16 +5,23 @@ import {
   type MemoryResult,
   type RankedResult,
   type ContextPack,
+  type ContextItem,
   type FeedbackEvent,
   type OutcomeEvent,
   type SimilarityPair,
+  DEFAULT_DEPENDENCY_EXPANSION_POLICY,
+  type CodeContextItem,
+  type DependencyContextItem,
+  type ContextEventSource,
+  type CodeSearchResult,
 } from "@brain/contracts";
 import type { MemoryService } from "@brain/memory";
-import { DEFAULT_NEAR_DUPLICATE_POLICY, type NearDuplicatePolicy, type RetrievalService } from "@brain/retrieval";
+import { DEFAULT_NEAR_DUPLICATE_POLICY, type NearDuplicatePolicy, type RetrievalService, type CodeRetrievalService } from "@brain/retrieval";
 import type { EventService } from "@brain/learning";
-import { rank } from "@brain/ranking";
-import { compileContext } from "@brain/context";
-import { optimizeContext, estimateTokens } from "@brain/token";
+import type { DependencyGraphService, DependencyRef, ImpactRef } from "@brain/codebase";
+import { rank, computeScore, DEFAULT_RANKING_WEIGHTS } from "@brain/ranking";
+import { compileContext, formatCodeContent, formatDependencyContent, selectSources } from "@brain/context";
+import { optimizeContext, optimizeSources, estimateTokens } from "@brain/token";
 import { BrainError, invalidRequest, notFound, internalError } from "./errors.js";
 import type {
   ContextDelivery,
@@ -32,6 +39,7 @@ import type {
 } from "./types.js";
 
 const DEFAULT_CANDIDATE_LIMIT = 50;
+const DEFAULT_CODE_CANDIDATE_LIMIT = 20;
 const PROJECT_COUNT_LIMIT = 500;
 
 /**
@@ -78,6 +86,12 @@ export class Gateway {
       enabled: false,
       ...DEFAULT_NEAR_DUPLICATE_POLICY,
     },
+    // 3.4. Both optional and undefined by default: with neither wired, getContext()
+    // takes the `codeItems.length === 0 && dependencyItemsBySeed.size === 0` branch
+    // below and calls the original optimizeContext unchanged -- byte-identical
+    // behavior for every caller that has no coding capability injected.
+    private readonly codeRetrieval?: CodeRetrievalService,
+    private readonly dependencyGraph?: DependencyGraphService,
   ) {}
 
   /** brain_context: the full retrieval -> ranking -> context -> budget pipeline. */
@@ -117,8 +131,39 @@ export class Gateway {
     const compiledContext = compileContext({ task: request.task, scope: request.scope, rankedResults, redundancyPairs });
     const compileMs = performance.now() - compileStart;
 
+    // 3.4: code/dependency retrieval run alongside memory compilation, both
+    // degrading to empty (never throwing) on failure -- see getCodeItems/
+    // getDependencyItemsBySeed's own doc comments for the per-source failure
+    // handling this depends on.
+    const codeItems = await this.getCodeItems(request.task, request.scope);
+    const dependencyItemsBySeed = await this.getDependencyItemsBySeed(codeItems);
+
     const optimizeStart = performance.now();
-    const contextPack = optimizeContext(compiledContext, request.budget);
+    let contextPack: ContextPack;
+    let deliveredCodeItems: CodeContextItem[] | undefined;
+    let deliveredDependencyItems: DependencyContextItem[] | undefined;
+
+    // No coding capability wired (or nothing came back from it) -> the original,
+    // pre-3.4 memory-only path, byte-identical to Phase 2B/2C. Only when there is
+    // at least one code or dependency candidate does the heterogeneous
+    // selectSources/optimizeSources path below ever run.
+    if (codeItems.length === 0 && dependencyItemsBySeed.size === 0) {
+      contextPack = optimizeContext(compiledContext, request.budget);
+    } else {
+      const wrappers = selectSources(compiledContext.items, codeItems, dependencyItemsBySeed);
+      const filled = optimizeSources(wrappers, request.budget);
+      const memoryItems: ContextItem[] = [];
+      const codeOut: CodeContextItem[] = [];
+      const depOut: DependencyContextItem[] = [];
+      for (const w of filled.items) {
+        if (w.sourceType === "memory") memoryItems.push({ ...w.item, content: w.content, wasCompressed: w.wasCompressed });
+        else if (w.sourceType === "code") codeOut.push({ ...w.item, content: w.content, wasCompressed: w.wasCompressed });
+        else depOut.push({ ...w.item, content: w.content, wasCompressed: w.wasCompressed });
+      }
+      contextPack = { items: memoryItems, tokenCount: filled.tokenCount, truncated: filled.truncated, omittedCount: filled.omittedCount };
+      deliveredCodeItems = codeOut.length > 0 ? codeOut : undefined;
+      deliveredDependencyItems = depOut.length > 0 ? depOut : undefined;
+    }
     const optimizeMs = performance.now() - optimizeStart;
 
     // Telemetry: automatic, matching the one part of the learning loop both
@@ -154,6 +199,18 @@ export class Gateway {
         optimizeMs: Math.round(optimizeMs),
       });
       contextId = contextEvent.id;
+
+      // 3.4: additive code/dependency source telemetry -- a distinct table from
+      // context_event_memories (see ContextEventSource's doc comment), fetched
+      // separately by the caller rather than nested onto every ContextEvent read.
+      const sourceRows = this.buildContextEventSources(codeItems, dependencyItemsBySeed, deliveredCodeItems, deliveredDependencyItems);
+      if (sourceRows.length > 0) {
+        try {
+          await this.events.recordContextSources(contextEvent.id, sourceRows);
+        } catch (error) {
+          console.error("brain_context: source telemetry recording failed (context still returned):", error);
+        }
+      }
     } catch (error) {
       // Telemetry must never block the agent from getting its context -- but it
       // must not be silently invisible either (AUDIT_AEOS_BRAIN.md 13's "RPC may
@@ -164,7 +221,148 @@ export class Gateway {
       console.error("brain_context: telemetry recording failed (context still returned):", error);
     }
 
-    return { ...contextPack, contextId };
+    // exactOptionalPropertyTypes: codeItems/dependencyItems must be OMITTED, not
+    // set to literal `undefined`, when there is nothing to deliver -- conditional
+    // spread, matching packages/storage's established pattern for optional
+    // fields (see docs/superpowers/plans/2026-08-20-phase-2c-efficiency-redundancy.md).
+    return {
+      ...contextPack,
+      contextId,
+      ...(deliveredCodeItems !== undefined ? { codeItems: deliveredCodeItems } : {}),
+      ...(deliveredDependencyItems !== undefined ? { dependencyItems: deliveredDependencyItems } : {}),
+    };
+  }
+
+  /** Bounded, scope-native code retrieval + scoring. Never throws -- a failure degrades to no code items. */
+  private async getCodeItems(task: string, scope: GetContextRequest["scope"]): Promise<CodeContextItem[]> {
+    if (!this.codeRetrieval) return [];
+    let results: CodeSearchResult[];
+    try {
+      results = await this.codeRetrieval.getCandidates({ text: task, scope, limit: DEFAULT_CODE_CANDIDATE_LIMIT });
+    } catch (error) {
+      console.warn("brain_context: code retrieval failed, continuing without code context:", error);
+      return [];
+    }
+    const scored = results
+      .map((r) => ({ result: r, score: computeScore(r.signals, DEFAULT_RANKING_WEIGHTS) }))
+      .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.result.chunkId < b.result.chunkId ? -1 : 1));
+    return scored.map(({ result, score }, index): CodeContextItem => ({
+      sourceType: "code",
+      chunkId: result.chunkId,
+      repositoryId: result.repositoryId,
+      fileId: result.fileId,
+      relativePath: result.relativePath,
+      language: result.language,
+      startLine: result.startLine,
+      endLine: result.endLine,
+      content: formatCodeContent(result),
+      score,
+      rank: index + 1,
+      wasCompressed: false,
+    }));
+  }
+
+  /** Bounded dependency enrichment for the given (already tier-1-ordered) seed code items. Never throws. */
+  private async getDependencyItemsBySeed(codeItems: CodeContextItem[]): Promise<Map<string, DependencyContextItem[]>> {
+    const byFileId = new Map<string, DependencyContextItem[]>();
+    if (!this.dependencyGraph) return byFileId;
+    const policy = DEFAULT_DEPENDENCY_EXPANSION_POLICY;
+
+    for (const seed of codeItems.slice(0, policy.maxDependencySeedFiles)) {
+      const items: DependencyContextItem[] = [];
+      try {
+        const deps = (await this.dependencyGraph.dependenciesOf(seed.repositoryId, seed.fileId)).slice(0, policy.maxDirectDependenciesPerFile);
+        if (deps.length > 0) items.push(this.buildDependencyItem(seed, "dependency", deps.map((d) => ({ ...d, depth: null }))));
+
+        const dependents = (await this.dependencyGraph.dependentsOf(seed.repositoryId, seed.fileId)).slice(0, policy.maxDirectDependentsPerFile);
+        if (dependents.length > 0) items.push(this.buildDependencyItem(seed, "dependent", dependents.map((d) => ({ ...d, depth: null }))));
+
+        // Task-5 carry-forward: formatDependencyContent's "impact" branch labels the
+        // WHOLE group by facts[0].depth, which is only honest when every fact shares
+        // one depth. impactOf's BFS is called with maxDepth: policy.maxImpactDepth
+        // (1 by default), and its loop advances depth exactly once before the
+        // maxDepth check can stop it -- so with the default policy, every ImpactRef
+        // this call can possibly return has depth === 1. See self-review in
+        // task-8-report.md for the full trace of why this holds by construction,
+        // not by luck.
+        const impact = (await this.dependencyGraph.impactOf(seed.repositoryId, seed.fileId, { maxDepth: policy.maxImpactDepth })).slice(0, policy.maxImpactItems);
+        if (impact.length > 0) items.push(this.buildDependencyItem(seed, "impact", impact));
+      } catch (error) {
+        console.warn(`brain_context: dependency enrichment failed for ${seed.relativePath}, continuing without it:`, error);
+        continue;
+      }
+      if (items.length > 0) byFileId.set(seed.fileId, items);
+    }
+    return byFileId;
+  }
+
+  private buildDependencyItem(
+    seed: CodeContextItem,
+    relation: "dependency" | "dependent" | "impact",
+    facts: (DependencyRef & { depth: number | null })[] | ImpactRef[],
+  ): DependencyContextItem {
+    const normalized = facts.map((f) => ({ fileId: f.fileId, relativePath: f.relativePath, depth: "depth" in f ? f.depth : null }));
+    return {
+      sourceType: "dependency",
+      repositoryId: seed.repositoryId,
+      seedFileId: seed.fileId,
+      seedRelativePath: seed.relativePath,
+      relation,
+      facts: normalized,
+      content: formatDependencyContent(seed.relativePath, relation, normalized),
+      rank: 0,
+      wasCompressed: false,
+    };
+  }
+
+  /** One row per code/dependency candidate considered, included or not -- mirrors membershipRows' memory-side convention. */
+  private buildContextEventSources(
+    candidateCodeItems: CodeContextItem[],
+    candidateDependencyItemsBySeed: Map<string, DependencyContextItem[]>,
+    deliveredCodeItems: CodeContextItem[] | undefined,
+    deliveredDependencyItems: DependencyContextItem[] | undefined,
+  ): ContextEventSource[] {
+    const deliveredCodeIds = new Set((deliveredCodeItems ?? []).map((i) => i.chunkId));
+    const deliveredCodeByChunkId = new Map((deliveredCodeItems ?? []).map((i) => [i.chunkId, i]));
+    const rows: ContextEventSource[] = [];
+
+    for (const candidate of candidateCodeItems) {
+      const delivered = deliveredCodeByChunkId.get(candidate.chunkId);
+      rows.push({
+        sourceType: "code",
+        sourceId: candidate.chunkId,
+        repositoryId: candidate.repositoryId,
+        fileId: candidate.fileId,
+        relativePath: candidate.relativePath,
+        relation: null,
+        depth: null,
+        included: deliveredCodeIds.has(candidate.chunkId),
+        rank: delivered?.rank ?? null,
+        tokenCount: delivered ? this.safeEstimate(delivered.content) : null,
+      });
+    }
+
+    const deliveredDepBySeedRelation = new Map((deliveredDependencyItems ?? []).map((i) => [`${i.seedFileId}:${i.relation}`, i]));
+    for (const [seedFileId, items] of candidateDependencyItemsBySeed) {
+      for (const candidateGroup of items) {
+        const delivered = deliveredDepBySeedRelation.get(`${seedFileId}:${candidateGroup.relation}`);
+        for (const fact of candidateGroup.facts) {
+          rows.push({
+            sourceType: "dependency",
+            sourceId: `${seedFileId}:${fact.fileId}:${candidateGroup.relation}`,
+            repositoryId: candidateGroup.repositoryId,
+            fileId: fact.fileId,
+            relativePath: fact.relativePath,
+            relation: candidateGroup.relation,
+            depth: fact.depth,
+            included: delivered !== undefined,
+            rank: delivered?.rank ?? null,
+            tokenCount: delivered ? this.safeEstimate(delivered.content) : null,
+          });
+        }
+      }
+    }
+    return rows;
   }
 
   /**

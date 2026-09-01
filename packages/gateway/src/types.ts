@@ -8,6 +8,8 @@ import type {
   MemoryUpdateInput,
   FeedbackEvent,
   OutcomeEvent,
+  CodeContextItem,
+  DependencyContextItem,
 } from "@brain/contracts";
 
 // Request/response shapes for the 10 brain_* operations. Defined here (not in
@@ -33,6 +35,8 @@ import type {
  */
 export type ContextDelivery = ContextPack & {
   contextId: string | null;
+  codeItems?: CodeContextItem[];
+  dependencyItems?: DependencyContextItem[];
 };
 
 export interface GetContextRequest {

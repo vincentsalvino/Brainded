@@ -1,26 +1,42 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { globalScope, projectScope } from "@brain/contracts";
-import { FakeMemoryRepository, FakeRetrievalStore, FakeEventStore, buildMemoryRecord } from "@brain/test-fixtures";
+import {
+  FakeMemoryRepository,
+  FakeRetrievalStore,
+  FakeEventStore,
+  buildMemoryRecord,
+  FakeCodeSearchStore,
+  FakeCodeDependencyStore,
+  FakeCodebaseRepository,
+  FakeEmbeddingProvider,
+} from "@brain/test-fixtures";
 import { MemoryService } from "@brain/memory";
-import { RetrievalService } from "@brain/retrieval";
+import { RetrievalService, CodeRetrievalService } from "@brain/retrieval";
 import { EventService } from "@brain/learning";
+import { DependencyGraphService } from "@brain/codebase";
 import { Gateway } from "./gateway.js";
 import { BrainError } from "./errors.js";
 
 function setup(
   seedRecords: ReturnType<typeof buildMemoryRecord>[] = [],
   redundancy?: { enabled: boolean; candidateFloor: number; containmentThreshold: number },
+  coding?: { codeSearchStore?: FakeCodeSearchStore; codebaseRepo?: FakeCodebaseRepository; depStore?: FakeCodeDependencyStore },
 ) {
   const eventStore = new FakeEventStore();
   const memoryRepo = new FakeMemoryRepository(eventStore);
   const retrievalStore = new FakeRetrievalStore(seedRecords);
+  const codeRetrieval = coding?.codeSearchStore ? new CodeRetrievalService(coding.codeSearchStore) : undefined;
+  const dependencyGraph =
+    coding?.codebaseRepo && coding?.depStore ? new DependencyGraphService(coding.codebaseRepo, coding.depStore) : undefined;
   const gateway = new Gateway(
     new MemoryService(memoryRepo),
     new RetrievalService(retrievalStore),
     new EventService(eventStore),
     { vectorSearchAvailable: true },
     redundancy,
+    codeRetrieval,
+    dependencyGraph,
   );
   return { gateway, memoryRepo, retrievalStore, eventStore };
 }
@@ -508,4 +524,115 @@ test("redundancy degradation: a store that throws on findSimilarPairs never fail
   );
   const delivery = await gateway.getContext({ task: "anything", scope: globalScope(), budget: { maxTokens: 500 } });
   assert.ok(delivery.items.length > 0);
+});
+
+// --- Task 8: Gateway orchestrates memory + code + dependency context -------
+
+test("brain_context: memory-only behavior is byte-identical when no coding capability is provided", async () => {
+  const record = buildMemoryRecord({ content: "use conventional commits for every pull request", scope: globalScope() });
+  const { gateway } = setup([record]);
+  const pack = await gateway.getContext({ task: "conventional commits", scope: globalScope(), budget: { maxTokens: 1000 } });
+  assert.equal(pack.codeItems, undefined);
+  assert.equal(pack.dependencyItems, undefined);
+});
+
+test("brain_context: a project with indexed code returns code source items with path + line-range provenance", async () => {
+  const codeStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  codeStore.index({
+    id: "chunk-1", fileId: "file-1", repositoryId: "repo-1", scope: projectScope("proj-a"),
+    relativePath: "src/user-service.ts", chunkIndex: 0, startLine: 10, endLine: 20,
+    content: "export function createUser() {}", contentHash: "h1",
+  });
+  const { gateway } = setup([], undefined, { codeSearchStore: codeStore });
+  const pack = await gateway.getContext({ task: "createUser", scope: projectScope("proj-a"), budget: { maxTokens: 2000 } });
+  assert.ok(pack.codeItems && pack.codeItems.length > 0);
+  const item = pack.codeItems?.[0];
+  assert.equal(item?.relativePath, "src/user-service.ts");
+  assert.equal(item?.startLine, 10);
+  assert.equal(item?.endLine, 20);
+});
+
+test("brain_context: code from another project never leaks", async () => {
+  const codeStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  codeStore.index({
+    id: "chunk-1", fileId: "file-1", repositoryId: "repo-a", scope: projectScope("proj-a"),
+    relativePath: "src/secret.ts", chunkIndex: 0, startLine: 1, endLine: 5,
+    content: "export const secret = 1;", contentHash: "h1",
+  });
+  const { gateway } = setup([], undefined, { codeSearchStore: codeStore });
+  const pack = await gateway.getContext({ task: "secret", scope: projectScope("proj-b"), budget: { maxTokens: 2000 } });
+  assert.ok(!pack.codeItems || pack.codeItems.length === 0);
+});
+
+test("brain_context: dependency enrichment can accompany selected code", async () => {
+  const codebaseRepo = new FakeCodebaseRepository();
+  const { id: repositoryId } = await codebaseRepo.createRepository(projectScope("proj-a"), "/repo");
+  const seedFile = { id: "file-1", repositoryId, scope: projectScope("proj-a"), relativePath: "src/a.ts", language: "typescript", sizeBytes: 1, contentHash: "h1", indexedAt: new Date().toISOString() };
+  const depFile = { id: "file-2", repositoryId, scope: projectScope("proj-a"), relativePath: "src/b.ts", language: "typescript", sizeBytes: 1, contentHash: "h2", indexedAt: new Date().toISOString() };
+  await codebaseRepo.replaceFile(seedFile, []);
+  await codebaseRepo.replaceFile(depFile, []);
+  const depStore = new FakeCodeDependencyStore();
+  await depStore.replaceOutgoingEdges(repositoryId, "file-1", "h1", [
+    { id: "edge-1", repositoryId, scope: projectScope("proj-a"), sourceFileId: "file-1", targetFileId: "file-2", specifier: "./b", kind: "static_import", resolution: "internal", sourceLine: 1, createdAt: new Date().toISOString() },
+  ]);
+  const codeStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  codeStore.index({ id: "chunk-1", fileId: "file-1", repositoryId, scope: projectScope("proj-a"), relativePath: "src/a.ts", chunkIndex: 0, startLine: 1, endLine: 3, content: "import { b } from './b';", contentHash: "h1" });
+
+  const { gateway } = setup([], undefined, { codeSearchStore: codeStore, codebaseRepo, depStore });
+  // Task text must lexically match the indexed chunk's CONTENT, not its path --
+  // FakeCodeSearchStore's word-overlap heuristic scores query terms against
+  // chunk.content only (see fake-code-search-store.ts's wordOverlap), same
+  // convention every other code-search test in this file already follows.
+  const pack = await gateway.getContext({ task: "import", scope: projectScope("proj-a"), budget: { maxTokens: 2000 } });
+  assert.ok(pack.dependencyItems && pack.dependencyItems.length > 0);
+});
+
+test("brain_context: dependency graph failure does not fail context -- memory + code still returned", async () => {
+  const codeStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  codeStore.index({ id: "chunk-1", fileId: "file-1", repositoryId: "repo-1", scope: globalScope(), relativePath: "src/a.ts", chunkIndex: 0, startLine: 1, endLine: 3, content: "export const a = 1;", contentHash: "h1" });
+  const codebaseRepo = new FakeCodebaseRepository();
+  const depStore = new FakeCodeDependencyStore();
+  depStore.dependenciesOf = async () => { throw new Error("simulated dependency store failure"); };
+  const { gateway } = setup([], undefined, { codeSearchStore: codeStore, codebaseRepo, depStore });
+  const pack = await gateway.getContext({ task: "a", scope: globalScope(), budget: { maxTokens: 2000 } });
+  assert.ok(pack.codeItems && pack.codeItems.length > 0);
+  assert.ok(!pack.dependencyItems || pack.dependencyItems.length === 0);
+});
+
+test("brain_context: code retrieval failure does not fail memory context", async () => {
+  const record = buildMemoryRecord({ content: "architectural rule: routes never touch the repository layer directly", scope: globalScope() });
+  const codeStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  codeStore.lexicalSearch = async () => { throw new Error("simulated code search failure"); };
+  const { gateway } = setup([record], undefined, { codeSearchStore: codeStore });
+  const pack = await gateway.getContext({ task: "routes repository layer", scope: globalScope(), budget: { maxTokens: 2000 } });
+  assert.ok(pack.items.length > 0);
+  assert.ok(!pack.codeItems || pack.codeItems.length === 0);
+});
+
+test("brain_context: final mixed context never exceeds the token budget", async () => {
+  const record = buildMemoryRecord({ content: "x".repeat(500), scope: globalScope() });
+  const codeStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  codeStore.index({ id: "chunk-1", fileId: "file-1", repositoryId: "repo-1", scope: globalScope(), relativePath: "src/a.ts", chunkIndex: 0, startLine: 1, endLine: 3, content: "y".repeat(500), contentHash: "h1" });
+  const { gateway } = setup([record], undefined, { codeSearchStore: codeStore });
+  const pack = await gateway.getContext({ task: "x y", scope: globalScope(), budget: { maxTokens: 200 } });
+  assert.ok(pack.tokenCount <= 200);
+});
+
+test("brain_context: no fake MemoryRecord is ever constructed for code -- items never contains a code chunk's id", async () => {
+  const codeStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  codeStore.index({ id: "chunk-1", fileId: "file-1", repositoryId: "repo-1", scope: globalScope(), relativePath: "src/a.ts", chunkIndex: 0, startLine: 1, endLine: 3, content: "export const a = 1;", contentHash: "h1" });
+  const { gateway } = setup([], undefined, { codeSearchStore: codeStore });
+  const pack = await gateway.getContext({ task: "a", scope: globalScope(), budget: { maxTokens: 2000 } });
+  assert.ok(pack.items.every((i) => !i.memoryId.startsWith("chunk")));
+});
+
+test("brain_context: mixed delivery records code source telemetry with correct chunk/file provenance", async () => {
+  const codeStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  codeStore.index({ id: "chunk-1", fileId: "file-1", repositoryId: "repo-1", scope: globalScope(), relativePath: "src/a.ts", chunkIndex: 0, startLine: 1, endLine: 3, content: "export const a = 1;", contentHash: "h1" });
+  const { gateway, eventStore } = setup([], undefined, { codeSearchStore: codeStore });
+  const pack = await gateway.getContext({ task: "a", scope: globalScope(), budget: { maxTokens: 2000 } });
+  const rows = await eventStore.getContextEventSources(pack.contextId as string);
+  const codeRows = rows.filter((r) => r.sourceType === "code");
+  assert.ok(codeRows.length > 0);
+  assert.equal(codeRows[0]?.relativePath, "src/a.ts");
 });

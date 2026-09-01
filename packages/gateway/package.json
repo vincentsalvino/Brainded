@@ -21,7 +21,8 @@
     "@brain/ranking": "0.1.0",
     "@brain/context": "0.1.0",
     "@brain/token": "0.1.0",
-    "@brain/learning": "0.1.0"
+    "@brain/learning": "0.1.0",
+    "@brain/codebase": "0.1.0"
   },
   "devDependencies": {
     "@brain/test-fixtures": "0.1.0"
