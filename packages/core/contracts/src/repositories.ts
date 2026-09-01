@@ -9,6 +9,7 @@ import type {
   FeedbackEvent,
   MemoryMutationEvent,
 } from "./events.js";
+import type { CodebaseRecord, CodeFileRecord, CodeChunkRecord } from "./codebase.js";
 
 // Behavioral contracts only -- implementations live in packages/storage.
 // packages/core/* depend on these interfaces, never on a concrete implementation
@@ -67,4 +68,25 @@ export interface EventStore {
 
 export interface EmbeddingProvider {
   embed(text: string): Promise<number[]>;
+}
+
+/**
+ * Phase 3.1. `replaceFile` is the single atomic write primitive -- it covers both
+ * "new file" (no prior row) and "changed file" (prior row exists) because file ids
+ * are deterministic per (repositoryId, relativePath), so the underlying write is
+ * always a natural upsert. Implementations must delete the file's existing chunks
+ * and write the new ones in the same transaction as the file-row upsert -- see
+ * SqliteCodebaseRepository. Never returns/accepts a raw SQL handle; callers only
+ * ever see CodebaseRecord/CodeFileRecord/CodeChunkRecord.
+ */
+export interface CodebaseRepository {
+  findRepository(scope: ScopeRef, rootPath: string): Promise<CodebaseRecord | null>;
+  createRepository(scope: ScopeRef, rootPath: string): Promise<CodebaseRecord>;
+  markIndexed(repositoryId: string): Promise<void>;
+  listFiles(repositoryId: string): Promise<CodeFileRecord[]>;
+  replaceFile(
+    file: CodeFileRecord,
+    chunks: CodeChunkRecord[],
+  ): Promise<{ chunksCreated: number; chunksRemoved: number }>;
+  removeFile(fileId: string): Promise<{ chunksRemoved: number }>;
 }

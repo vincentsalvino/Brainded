@@ -1,0 +1,26 @@
+{
+  "name": "@brain/codebase",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "tsc -p tsconfig.test.json",
+    "test": "node --test \"dist-test/hash.test.js\" \"dist-test/chunker.test.js\" \"dist-test/classify.test.js\" \"dist-test/ignore.test.js\" \"dist-test/discovery.test.js\" \"dist-test/indexer.test.js\"",
+    "pretest:integration": "tsc -p tsconfig.test.json",
+    "test:integration": "node --test \"dist-test/self-index.test.js\""
+  },
+  "dependencies": {
+    "@brain/contracts": "0.1.0",
+    "ignore": "^6.0.2"
+  },
+  "devDependencies": {
+    "@brain/test-fixtures": "0.1.0"
+  }
+}

@@ -80,7 +80,11 @@ function migrationSql(name: string): string {
 
 test("migrations: a fresh database applies every migration, in filename order", () => {
   const db = openDatabase(":memory:");
-  assert.deepEqual(appliedMigrations(db.raw), ["0001_initial_schema.sql", "0002_phase2_measurement.sql"]);
+  assert.deepEqual(appliedMigrations(db.raw), [
+    "0001_initial_schema.sql",
+    "0002_phase2_measurement.sql",
+    "0003_codebase_index.sql",
+  ]);
   const tables = (
     db.raw.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as { name: string }[]
   ).map((t) => t.name);
@@ -120,7 +124,11 @@ test("migrations: a Phase 1-style database (0001 applied, no ledger) upgrades wi
   try {
     // 0001 is re-applied (it is entirely CREATE ... IF NOT EXISTS, so a no-op) and
     // recorded, then 0002 applies. No backfill, no version sniffing.
-    assert.deepEqual(appliedMigrations(upgraded.raw), ["0001_initial_schema.sql", "0002_phase2_measurement.sql"]);
+    assert.deepEqual(appliedMigrations(upgraded.raw), [
+      "0001_initial_schema.sql",
+      "0002_phase2_measurement.sql",
+      "0003_codebase_index.sql",
+    ]);
 
     assert.equal(
       (upgraded.raw.prepare(`SELECT COUNT(*) n FROM memories`).get() as { n: number }).n,
