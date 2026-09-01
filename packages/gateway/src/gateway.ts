@@ -156,9 +156,15 @@ export class Gateway {
       const codeOut: CodeContextItem[] = [];
       const depOut: DependencyContextItem[] = [];
       for (const w of filled.items) {
-        if (w.sourceType === "memory") memoryItems.push({ ...w.item, content: w.content, wasCompressed: w.wasCompressed });
-        else if (w.sourceType === "code") codeOut.push({ ...w.item, content: w.content, wasCompressed: w.wasCompressed });
-        else depOut.push({ ...w.item, content: w.content, wasCompressed: w.wasCompressed });
+        // w.rank is selectSources' one true combined 1..N position across
+        // memory+code+dependency together -- w.item.rank is each item's stale,
+        // independently-numbered-from-1 rank from its OWN source stage
+        // (compileContext / getCodeItems / buildDependencyItem's rank:0
+        // placeholder) and must never leak through uncorrected, or two items
+        // from different source types collide on the same delivered rank.
+        if (w.sourceType === "memory") memoryItems.push({ ...w.item, content: w.content, rank: w.rank, wasCompressed: w.wasCompressed });
+        else if (w.sourceType === "code") codeOut.push({ ...w.item, content: w.content, rank: w.rank, wasCompressed: w.wasCompressed });
+        else depOut.push({ ...w.item, content: w.content, rank: w.rank, wasCompressed: w.wasCompressed });
       }
       contextPack = { items: memoryItems, tokenCount: filled.tokenCount, truncated: filled.truncated, omittedCount: filled.omittedCount };
       deliveredCodeItems = codeOut.length > 0 ? codeOut : undefined;

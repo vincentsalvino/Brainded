@@ -636,3 +636,35 @@ test("brain_context: mixed delivery records code source telemetry with correct c
   assert.ok(codeRows.length > 0);
   assert.equal(codeRows[0]?.relativePath, "src/a.ts");
 });
+
+test("brain_context: mixed delivery assigns distinct, non-colliding ranks across memory and code items", async () => {
+  const record = buildMemoryRecord({ content: "user service handles authentication", scope: globalScope() });
+  const codeStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  codeStore.index({
+    id: "chunk-1", fileId: "file-1", repositoryId: "repo-1", scope: globalScope(),
+    relativePath: "src/user-service.ts", chunkIndex: 0, startLine: 1, endLine: 3,
+    content: "export function userService() {}", contentHash: "h1",
+  });
+  const { gateway, eventStore } = setup([record], undefined, { codeSearchStore: codeStore });
+  const pack = await gateway.getContext({ task: "user service", scope: globalScope(), budget: { maxTokens: 2000 } });
+
+  assert.equal(pack.items.length, 1);
+  assert.ok(pack.codeItems && pack.codeItems.length === 1);
+  const memoryItem = pack.items[0]!;
+  const codeItem = pack.codeItems[0]!;
+  // The wrapper-level rank selectSources assigns is the one true combined
+  // 1..N position across memory+code together -- each item's OWN nested rank
+  // (memory-only or code-only numbering, independently starting at 1) must
+  // never leak through unmodified into a mixed delivery, or two items from
+  // different source types collide on the same rank.
+  assert.deepEqual([memoryItem.rank, codeItem.rank].sort((a, b) => a - b), [1, 2]);
+
+  // The corrected rank must reach both telemetry tables, not just the response.
+  const event = eventStore.contextEvents[0]!;
+  const memoryRow = event.memories.find((m) => m.memoryId === memoryItem.memoryId)!;
+  assert.equal(memoryRow.rank, memoryItem.rank, "context_event_memories.rank must match the delivered item's true combined rank");
+
+  const sourceRows = await eventStore.getContextEventSources(pack.contextId as string);
+  const codeRow = sourceRows.find((r) => r.sourceType === "code")!;
+  assert.equal(codeRow.rank, codeItem.rank, "context_event_sources.rank must match the delivered code item's true combined rank");
+});
