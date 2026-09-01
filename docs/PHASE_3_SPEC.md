@@ -293,3 +293,252 @@ One file's read/extract failure is caught, logged, and does not abort the run (`
 ## Explicitly Not Implemented in 3.3
 
 Symbol table, function/class/interface graphs, AST semantic parsing, LSP, test-impact prediction, change-risk scoring, git history, `brain_context`/MCP integration, dependency-specific `brain_*` tools, workspace-package/tsconfig-alias resolution, `.json` resolution, any redundancy or learning change.
+
+---
+
+# Phase 3.4 Spec — Context Integration
+
+Integrates 3.1/3.2/3.3's coding intelligence into `brain_context`, the one existing agent-facing pipeline (`retrieval -> ranking -> context compilation -> token budgeting`). The frozen 10-tool MCP surface does not grow; `brain_context`'s request shape does not change; its response gains two new, optional, additive fields. This is the last Phase 3 sub-milestone — no new `brain_*` tools, no symbol/AST intelligence, no learning.
+
+## Part D — Pre-flight Findings
+
+Read `BUILD_PLAN.md`, `ARCHITECTURE.md` §5/§6/§11/§12/§17, `ARCHITECTURE_REVIEW.md` (MCP-thinness boundary discussion), `DECISIONS.md`, this document's 3.1–3.3 sections. Then inspected shipped code directly, not assumed: `packages/core/contracts/src/{context.ts, retrieval.ts, events.ts, code-search.ts, code-dependency.ts, signals.ts}`, `packages/gateway/src/{gateway.ts, types.ts}`, `packages/mcp/src/{schemas.ts, server.ts, bootstrap.ts, boundaries.test.ts}`, `packages/core/context/src/compiler.ts`, `packages/core/token/src/optimize.ts`, `packages/core/ranking/src/{rank.ts, score.ts}`, `packages/core/retrieval/src/service.ts`, `packages/codebase/src/dependency-graph.ts`, `packages/storage/src/{db.ts, event-store.ts, codebase-repository.ts, code-search-store.ts}`, and every relevant `package.json` for the current DAG.
+
+Three findings changed the design from what the mission brief anticipated as open questions:
+
+1. **`ContextPackSchema`/`ContextItemSchema` are `.strict()` zod, but nothing calls `.parse()` on the *outbound* side.** `Gateway.getContext` constructs `{...contextPack, contextId}` as a plain object typed by TypeScript structural typing, and `packages/mcp/src/server.ts`'s `ok()` helper just `JSON.stringify`s whatever it is given — no runtime schema validation on the response. This means adding new sibling fields to `ContextDelivery` is safe: it never gets fed back through the strict schema, so there is no `.strict()`-rejects-unknown-keys landmine to design around. The `.strict()` schemas remain exactly what they always were — input-boundary validators (`CompileContextInputSchema.parse`, `RetrievalQuerySchema.parse`) — and stay untouched.
+2. **Code search is scope-native, not repository-scoped.** `SqliteCodeSearchStore.scopeWhere()` filters by `scope_kind`/`scope_id` exactly like `SqliteRetrievalStore` does for memory; `filters.repositoryId` is an optional narrowing filter, never required. `codeRetrieval.getCandidates({text, scope})` alone already searches every repository registered under that scope (plus global-scope code, mirroring memory's global-visible-from-project rule). The "which registered `CodebaseRecord`(s) belong to this project" question the mission raised does not need a new lookup method for the retrieval path — scope isolation is already correct at the store layer. No `CodebaseRepository.listRepositories(scope)` method is added; it would have no caller. `CodebaseRecord.lastIndexedAt` freshness surfacing is correspondingly **out of scope for 3.4** — nothing in the acceptance criteria or test list requires it, and the mission's own phrasing ("preserve it as diagnostics *where useful*") is soft, not a hard requirement. Named explicitly here rather than silently dropped.
+3. **A `CodingContextService` owned by `@brain/codebase` is DAG-incompatible, not just undesirable.** `@brain/codebase`'s `package.json` depends on `@brain/contracts` and `ignore` only (verified). `CodeRetrievalService` lives in `@brain/retrieval`. A codebase-owned service that "internally coordinates registered repositories, code retrieval, and dependency enrichment" would require `@brain/codebase -> @brain/retrieval`, which the mission explicitly forbids as a casual DAG change. Pre-flight resolves this to the mission's stated alternative: **Gateway orchestrates over abstract services already exported by `@brain/retrieval` and `@brain/codebase`**, matching invariant 6 exactly. `@brain/gateway`'s `package.json` gains one new dependency, `@brain/codebase` (a new DAG edge, no cycle: codebase still depends on nothing above contracts).
+
+No architectural conflict found beyond what's resolved above. Proceeding.
+
+## Heterogeneous Context Type
+
+Late normalization, per the mission's own design rule: memory keeps `ContextItem` unchanged through `compileContext`; code keeps `CodeSearchResult` unchanged through retrieval and scoring; dependency facts keep `DependencyGraphService`'s native `DependencyRef`/`ImpactRef` shape through enrichment. Only inside the new selection step do all three convert to a minimal common wrapper for budget competition, then split back into typed arrays for the response. `ContextItem` itself gains no new fields and no discriminant — it is not touched.
+
+Two new plain-interface types in `packages/core/contracts/src/context-source.ts` (not `.strict()` zod boundary schemas — like `IndexResult`/`CodeSyncResult`/`DependencySyncResult` before them, these are internal/output summary shapes, never a `.parse()` input boundary):
+
+```ts
+export interface CodeContextItem {
+  sourceType: "code";
+  chunkId: string;
+  repositoryId: string;
+  fileId: string;
+  relativePath: string;
+  language: string | null;
+  startLine: number;
+  endLine: number;
+  content: string;        // formatted, "[CODE] path:start-end\n<code>" -- see Context Formatting
+  score: number;
+  rank: number;
+  wasCompressed: boolean;
+}
+
+export const DEPENDENCY_RELATIONS = ["dependency", "dependent", "impact"] as const;
+export type DependencyRelation = (typeof DEPENDENCY_RELATIONS)[number];
+
+export interface DependencyContextItem {
+  sourceType: "dependency";
+  repositoryId: string;
+  seedFileId: string;         // the selected code file this fact enriches
+  seedRelativePath: string;
+  relation: DependencyRelation;
+  facts: { fileId: string; relativePath: string; depth: number | null }[]; // depth set only for relation="impact"
+  content: string;            // formatted, one item per (seedFile, relation) group -- see Context Formatting
+  rank: number;
+  wasCompressed: boolean;
+}
+```
+
+Dependency facts for the same seed file and relation are grouped into ONE `DependencyContextItem` (not one per related file) — this is the "adjacent items sharing header overhead" case the mission flags under Code Chunk Content, applied at generation time instead of as a post-hoc merge step, so no separate chunk-merging logic is needed. `DependencyContextItem` deliberately has no `score`: per the Ranking/Enrichment decision below, dependency facts are never independently ranked against memory or code — they are attached to already-selected code and inherit their position from it.
+
+`ContextDelivery` (`packages/gateway/src/types.ts`) gains two new optional fields:
+
+```ts
+export type ContextDelivery = ContextPack & {
+  contextId: string | null;
+  codeItems?: CodeContextItem[];
+  dependencyItems?: DependencyContextItem[];
+};
+```
+
+Absent (not `[]`) when no coding capability is wired, or wired but nothing relevant was found — the response shape a memory-only caller sees today is unchanged.
+
+## Backwards-Compatibility Decision
+
+**Option B: backward-compatible additive fields.** No breaking change to `brain_context`'s request (`getContextShape` in `packages/mcp/src/schemas.ts` stays `task/scope/maxTokens/agentCapabilities/taskId`, unchanged) or to `items`' shape. `mcp/boundaries.test.ts`'s mechanical assertion (`toolCount === 10`, one `gateway.*` call per handler) needs no change — `brain_context`'s handler still calls `gateway.getContext(...)` exactly once. No STOP condition was reached: the existing schema represents Phase 3 context correctly through pure addition, verified by finding #1 above (no strict-schema landmine on the way out), not merely hoped.
+
+One real behavioral (not schema) consequence, stated honestly: because memory and code now share one token budget, a project with indexed code may legitimately return *fewer* memory items than the same request would have returned before 3.4, if code items won some of the budget. This is the intended tradeoff (the mission's own example task wants exactly this blend) and does not violate compatibility — `items` remains correctly-typed and non-empty-when-memory-matches-exist; it is simply no longer computed in isolation from code.
+
+## Package / DAG Changes
+
+```
+@brain/contracts        <- + context-source.ts (CodeContextItem, DependencyContextItem)
+      ^
+      |
+@brain/core/context     <- + source normalization / heterogeneous selection (new file, see below)
+@brain/core/token        <- + generalized budget-fill core, existing optimizeContext delegates to it unchanged
+      ^
+      |
+@brain/gateway           <- + @brain/codebase dependency; optional codeRetrieval/dependencyGraph ctor params
+      ^
+      |
+@brain/mcp (bootstrap.ts only) <- wires SqliteCodeSearchStore/SqliteCodeDependencyStore/SqliteCodebaseRepository
+```
+
+`@brain/core/context` and `@brain/core/token` gain no dependency on `@brain/codebase` or `@brain/retrieval` — the new selection code there only ever imports types from `@brain/contracts`, which they already depend on. Gateway is the only package that imports the concrete `CodeRetrievalService`/`DependencyGraphService` classes. No cycle: `codebase -> contracts` only; `retrieval -> contracts` only; `gateway -> {contracts, memory, retrieval, ranking, context, token, learning, codebase}`, all one-directional, matching the existing shape exactly, just one wider.
+
+## Memory Source
+
+Unchanged. `retrieval.getCandidates` -> `rank()` -> `compileContext()` runs exactly as it does today, producing `CompiledContext.items: ContextItem[]`. This path has zero new code and is covered by the existing 638 tests remaining green.
+
+## Code Source
+
+New `CodeRetrievalService.getCandidates({text: task, scope}, limit: DEFAULT_CODE_CANDIDATE_LIMIT)` call in Gateway (only when `codeRetrieval` was injected), bounded at `DEFAULT_CODE_CANDIDATE_LIMIT = 20` (code chunks run larger than memory items; a smaller pool than memory's 50 is deliberate, characterized against real corpus size in the evaluation section, not asserted). Each `CodeSearchResult` is scored via the existing, unmodified `computeScore(signals, DEFAULT_RANKING_WEIGHTS)` (proven reusable on code signals since 3.2) and sorted score-descending, `chunkId` ascending as the final deterministic tie-break (mirrors `rank()`'s own tie-break shape, without memory's confidence field, which code has no honest value for). No new ranking module: this is an inline sort using an existing primitive, not a second ranking system.
+
+## Dependency Enrichment
+
+Enrichment, not an independent corpus, per the mission's own framing — computed only for code files that already won a slot in the (memory+code) selection below, never for the full candidate pool. Bounded policy, chosen against this repository's actual measured graph size (3.3: 150 eligible files, 647 edges, ~4.3 edges/file average):
+
+```
+maxDependencySeedFiles      = 3   -- only the top 3 SELECTED code files get enrichment
+maxDirectDependenciesPerFile = 5
+maxDirectDependentsPerFile   = 3
+maxImpactDepth               = 1  -- shallow by design; see rationale below
+maxImpactItems                = 5
+```
+
+`maxImpactDepth = 1` (not the mission's illustrative 2) is a deliberate, conservative starting point: the mission is explicit that dependency information may turn out to be mostly redundant with the code already shown (`DEPENDENCY VALUE AUDIT`), and `impactOf` at depth 2 on a graph this size can plausibly return double-digit items for a single seed file. Starting shallow and *measuring* whether depth 2 would have added real value (recorded, not silently discarded) is cheaper to correct later than starting wide and over-spending tokens now. All five numbers are `DependencyExpansionPolicy`, an injectable plain object with these as defaults — never hardcoded where the caller might reasonably need to override them (evaluation harness included).
+
+For the top `maxDependencySeedFiles` code items **by position in the tier-1 score-ordered sequence** (before budget fill runs, not after — see Mixed-Source Prioritization for why this ordering matters): `dependencyGraph.dependenciesOf`, `.dependentsOf`, and `.impactOf(..., {maxDepth: 1})` (capped, sliced) become up to three `DependencyContextItem`s (one per relation present), inserted into the sequence immediately after their seed code item.
+
+## Source Score Calibration
+
+Hypothesis, grounded in reading the actual scoring code (not assumed): memory's `RankedResult.score` and code's per-item `computeScore` output are both produced by the *same* pipeline — per-query `normalizeScores` bounding raw lexical/semantic signals to `[0,1]` at the store layer, then an identical weighted sum whose weights sum to 1 (`score.test.ts`: "default weights sum to 1"). Both scores should therefore already live on comparable `[0, ~1]` scales, unlike a naive cross-system score comparison.
+
+This is characterized empirically, not assumed into production: a new test (`source-calibration.test.ts`, see Formal Evaluation) runs representative coding-task queries against both a memory fixture and a code fixture built from the *same* underlying content pool, and reports the real score distributions side by side. If the distributions are close enough that raw-score interleaving does not systematically starve one source, direct score-descending interleaving (Option A) is used, *with* the starvation safety net below as a correction, not a replacement. If characterization instead shows a systematic skew, the fallback is per-source rank normalization before interleaving (Option A variant: sort each source's own list, then interleave by normalized rank position rather than raw score) — decided from the actual measurement, recorded in the implementation report, not pre-committed here.
+
+## Mixed-Source Prioritization
+
+Two-tier selection, implemented as a new pure function `selectSources(memoryItems, codeItems, dependencyItemsBySeed, policy): ContextSourceWrapper[]` in `packages/core/context/src/source-selection.ts`:
+
+**Tier 1 — memory and code compete by score.** All `ContextItem`s and `CodeContextItem`s are wrapped (`{sourceType, rank: <placeholder>, content, wasCompressed: false}`) and sorted by their calibrated score (see above), producing one merged, score-ordered sequence.
+
+**Starvation safety net.** After the score-sort, if one source (memory or code) has ≥1 candidate but zero items would survive an unbounded budget fill in the top slice while the other source has ≥2, the higher of that starved source's items is promoted ahead of the weakest already-ordered item from the dominant source. This is a correction applied only when a source with real candidates would otherwise get zero representation purely from scale mismatch — never a hardcoded quota (no forced "50/40/10" split), and never promotes an irrelevant item merely to fill a slot: a source with zero candidates gets zero items, always.
+
+**Tier 2 — dependency items attach to their seed, not the global ranking.** Tier 1 does not drop anything, only orders — it produces one merged sequence covering every memory and code candidate. The code items in the first `maxDependencySeedFiles` positions of that sequence each get their (already-computed) `DependencyContextItem`s spliced in immediately after them. `rank` is then assigned sequentially over the resulting combined array (1..N), and *that* full array — memory, code, and spliced dependency items together — is what `fillBudget` (Token-Budget Integration, below) actually runs over; budget survival is decided once, in that single pass, never before it. This is what "attached enrichment, not independently ranked" means concretely: a dependency item's position in the queue is a function of its seed's tier-1 position, never of a score it doesn't have — but whether it actually survives the budget is decided by the same greedy pass as everything else.
+
+**Determinism.** Every input to this function is already deterministically ordered (score, then a stable id tie-break); the function performs no I/O, no randomness, no wall-clock reads — same inputs always produce the same output array, independently testable with plain fixtures (test scenarios 11, 12, 20).
+
+## Starvation Safety
+
+Covered above; the concrete guarantee under test: a task with real memory matches AND real code matches never returns all-memory or all-code purely because of score-scale mismatch — but a task with zero code matches returns zero code items (never padding with irrelevant chunks to satisfy a quota), and symmetrically for memory.
+
+## Context Formatting
+
+Compact, matching the mission's own illustrative shape, no decorative wrapping:
+
+```
+[CODE] packages/gateway/src/gateway.ts:120-174
+<raw chunk content, unmodified>
+```
+
+```
+[DEPENDENCY] packages/gateway/src/gateway.ts directly imports:
+- packages/core/retrieval/src/service.ts
+- packages/core/ranking/src/rank.ts
+```
+
+```
+[DEPENDENCY] packages/storage/src/db.ts is directly imported by:
+- packages/storage/src/index.ts
+```
+
+```
+[POTENTIAL IMPACT] packages/storage/src/db.ts transitively depends on this file at depth 1:
+- packages/mcp/src/bootstrap.ts
+```
+
+Epistemic language preserved exactly per 3.3's own boundary: "directly imports" / "is directly imported by" / "transitively depends on this file at depth N", never "will break". Formatted text counts toward that item's token cost like any other content (token test 27) — no separate, untracked formatting budget.
+
+## Token-Budget Integration
+
+`packages/core/token/src/optimize.ts`'s two-pass fill (natural-fit pass, then compress-into-leftover pass, in array order, re-sorted to rank order at the end) is extracted into a generic core `fillBudget<T extends { content: string; rank: number; wasCompressed: boolean }>(items: T[], budget, estimate, compressFn)`. The existing `optimizeContext(compiledContext, budget, ...)` becomes a two-line wrapper calling `fillBudget` over `ContextItem[]` — its exported signature, behavior, and every existing test are unchanged (verified by the full regression, not just by inspection). A new `optimizeSources(sourceItems, budget, ...)` calls the *same* `fillBudget` over the tier-1+tier-2 wrapped array from `selectSources`. One algorithm, two thin typed callers — this is what makes "one context compiler, one budget path" concretely true rather than asserted: there is exactly one place budget arithmetic happens.
+
+Gateway then splits `fillBudget`'s output back into `items` (unwrap `sourceType==="memory"`, drop the wrapper, back to plain `ContextItem[]` — byte-identical shape to today), `codeItems`, and `dependencyItems`, and computes one `tokenCount`/`truncated`/`omittedCount` over the *entire* combined set — never three independent sums that could exceed `maxTokens` together.
+
+## Telemetry Design
+
+`context_events`/`context_event_memories` are untouched — zero regression risk to existing feedback/outcome correlation, exactly matching how 3.2/3.3 never touched `code_embedding_state`/`code_dependency_state`'s siblings. New migration `packages/storage/migrations/0006_context_sources.sql`:
+
+```sql
+CREATE TABLE IF NOT EXISTS context_event_sources (
+  context_event_id TEXT NOT NULL REFERENCES context_events(id) ON DELETE CASCADE,
+  source_type       TEXT NOT NULL CHECK (source_type IN ('code','dependency')),
+  source_id         TEXT NOT NULL,   -- chunkId for code rows; "{seedFileId}:{fileId}:{relation}" for dependency rows
+  repository_id     TEXT NOT NULL,
+  file_id           TEXT NOT NULL,
+  relative_path     TEXT NOT NULL,
+  relation          TEXT,             -- null for code rows; dependency|dependent|impact for dependency rows
+  depth             INTEGER,          -- null unless relation = 'impact'
+  included          INTEGER NOT NULL CHECK (included IN (0,1)),
+  rank              INTEGER,
+  token_count       INTEGER,
+  PRIMARY KEY (context_event_id, source_type, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_context_event_sources_event ON context_event_sources(context_event_id);
+```
+
+FK cascades on `context_event_id` deliberately (unlike `code_embedding_state`/`code_dependency_state`'s intentionally-FK-less design): there is no later sync that needs to detect an orphaned source row the way dependency re-resolution needs to detect a deleted target file — a `context_event_sources` row is meaningless once its parent `context_events` row is gone, so cascading is correct here, not an oversight.
+
+`EventStore` gains one new method, `recordContextSources(contextEventId, sources: ContextEventSource[]): Promise<void>`, called by Gateway right after `recordContext` succeeds, in the same spirit as (though not the same transaction as, since it depends on the just-minted `contextEventId`) `recordContext`'s own membership-row write. A write failure here degrades the same way telemetry already does elsewhere in `getContext` (logged, `contextId` still returned) — never fails the request.
+
+Mirrors `context_event_memories`' own convention: one row per candidate the source contributed (both `included: true` and `included: false`), so future Phase 4 work can distinguish "code was found but not selected" from "code was never found" — the same distinction `ARCHITECTURE.md` §17 already requires for memory. For a grouped `DependencyContextItem`, this means one `context_event_sources` row per entry in its `.facts[]` array, not one row for the group — individual facts aren't independently token-costed (the group is priced as one item), so each fact's row carries the *group's* `token_count` rather than a fabricated per-fact split; `rank`/`included` are the group's values, repeated per fact. This is a documented simplification, not a precision claim beyond what the data actually supports.
+
+## Feedback Semantics
+
+Unchanged, deliberately. `brain_feedback`'s schema (`feedbackShape` in `mcp/schemas.ts`) still validates against `FeedbackEventSchema`, `memoryId: uuid` — a chunk id (sha256 hex) or a dependency fact simply cannot be passed to it, and nothing in 3.4 tries to make that work. Code/dependency delivery is recorded via `context_event_sources` (telemetry) but is not feedback-able this phase. This is a real, disclosed scope boundary, not an oversight: the mission explicitly rules out expanding the frozen `brain_feedback` schema without separate architectural review, and 3.4 does not need adaptive code feedback to be complete.
+
+## Outcome Correlation
+
+Unchanged. `brain_record_outcome` still correlates by `contextId` alone (`Gateway.requireKnownContext`), which already resolves to the *complete* mixed delivery via `getContextEvent` regardless of how many source types it contained — an outcome recorded against a mixed-context `contextId` is exactly as valid as one recorded against a memory-only one today, with no new code needed to make that true.
+
+## Failure Degradation
+
+Every scenario resolves to "the request that would have worked before 3.4 still works," implemented as `codeRetrieval`/`dependencyGraph` being **optional constructor parameters** (graceful degradation by construction, matching `RetrievalService`'s existing `Promise.allSettled` degradation shape for semantic-search failure, not a try/catch bolted onto an otherwise-required call):
+
+| Scenario | Behavior |
+|---|---|
+| `codeRetrieval` not injected | Identical to pre-3.4: memory-only, no `codeItems`/`dependencyItems` keys at all |
+| Code search throws (store failure) | Caught at the Gateway orchestration point, logged, `codeItems` omitted; memory context unaffected |
+| Semantic code search unavailable | `CodeRetrievalService` already degrades to lexical-only internally (3.2); nothing new needed |
+| `dependencyGraph` not injected, or throws | `dependencyItems` omitted; memory + code context still returned |
+| No repository registered for scope | Code search returns `[]` naturally (no special-case needed — scope-native search over an empty corpus is just empty); memory-only response |
+| No relevant code for this task | Code returns candidates but none survive tier-1 selection at a meaningful score — no padding, `codeItems` omitted or empty |
+| No memory matches | `items: []`, `codeItems` still populated when relevant code exists — `items: []` is already a valid, existing response shape (a memory-only miss returns it today), so this adds no new caller-facing case to handle |
+
+## Project / Repository Resolution
+
+Covered under Pre-flight Finding 2: no new lookup needed. Scope flows through to `codeRetrieval`/`dependencyGraph` exactly as it already flows to memory retrieval.
+
+## Gateway Composition
+
+```
+bootstrap.ts
+  |  instantiate SqliteCodebaseRepository, SqliteCodeSearchStore, SqliteCodeDependencyStore
+  v
+new CodeRetrievalService(codeSearchStore)         -- @brain/retrieval, already exists (3.2)
+new DependencyGraphService(codebaseRepo, depStore) -- @brain/codebase, already exists (3.3)
+  v
+new Gateway(memory, retrieval, events, capabilities, redundancyConfig, codeRetrieval, dependencyGraph)
+```
+
+No SQL, search, or graph logic enters `bootstrap.ts` beyond construction calls — identical discipline to how it already wires `SqliteRetrievalStore`/`SqliteMemoryRepository` today. `boundaries.test.ts`'s "only bootstrap.ts imports storage / only bootstrap.ts imports core service packages" checks need no change to their logic, only their forbidden-import list gains no new exception (Gateway already gets a free pass as the non-forbidden target; `@brain/codebase` was never in the forbidden list to begin with, verified).
+
+## MCP Compatibility
+
+`getContextShape` unchanged. `registerBrainTools` unchanged (still exactly 10 `server.registerTool` calls, still one `gateway.*` call per handler — mechanically re-verified by the existing `boundaries.test.ts`, not just by inspection). No new tool. The tool description string may gain one clause noting that code/dependency context can be included when available — documentation only, not a schema change.
+
+## Explicitly Not Implemented in 3.4
+
+Adaptive/learned score calibration, per-agent budgets, code feedback, symbol-level enrichment, call graphs, cross-package (`@brain/*` workspace) dependency resolution (still `external`, per 3.3), automatic repository indexing inside `brain_context`, index-freshness blocking, a `CodingContextService` package, any new `brain_*` tool, any redundancy or learning behavior change.
