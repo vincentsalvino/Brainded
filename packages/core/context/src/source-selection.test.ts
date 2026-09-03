@@ -111,6 +111,29 @@ test("selectSources: deterministic -- identical input produces identical output 
   assert.deepEqual(first, second);
 });
 
+// Final-review Finding 1: two CHUNKS sharing one fileId, both in the top tier-1
+// positions, must not double-splice that file's dependency block. Before the
+// fix, seedsUsed counted code ENTRIES (c1, c2, c3), not distinct fileIds -- c1
+// and c2 both being "f1" independently triggered a splice of the SAME
+// dependencyItemsBySeedFileId.get("f1") array, producing a duplicate
+// [DEPENDENCY] block AND spending the 2nd of 3 seed slots on a repeat instead
+// of on f2, whose real dependency block never appeared. This is the reviewer's
+// exact reproduction sequence.
+test("selectSources: two code chunks sharing a fileId in the top tier-1 positions produce no duplicate dependency block, and the seed budget is spent on distinct files, not entries", () => {
+  const code = [codeItem("c1", "f1", 0.9), codeItem("c2", "f1", 0.85), codeItem("c3", "f2", 0.8)];
+  const deps = new Map([
+    ["f1", [dependencyItem("f1")]],
+    ["f2", [dependencyItem("f2")]],
+  ]);
+  const result = selectSources([], code, deps); // default policy: maxDependencySeedFiles = 3
+
+  assert.deepEqual(
+    result.map((w) => (w.sourceType === "code" ? w.item.chunkId : w.sourceType === "dependency" ? `dep:${w.item.seedFileId}` : "n/a")),
+    ["c1", "dep:f1", "c2", "c3", "dep:f2"],
+    "f1's dependency block must appear exactly once (not once per chunk), and f2's real dependency block must survive -- the seed budget must be spent on 2 distinct files, not wasted re-seeding f1 for both c1 and c2",
+  );
+});
+
 // Beyond the brief: the "deterministic" test above ties memory-vs-memory (m1/m2)
 // and memory-vs-code (c1/m1), but never two code items against each other, so it
 // cannot catch a comparator that special-cases sourceType instead of comparing

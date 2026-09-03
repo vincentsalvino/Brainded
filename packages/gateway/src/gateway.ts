@@ -274,7 +274,24 @@ export class Gateway {
     if (!this.dependencyGraph) return byFileId;
     const policy = DEFAULT_DEPENDENCY_EXPANSION_POLICY;
 
-    for (const seed of codeItems.slice(0, policy.maxDependencySeedFiles)) {
+    // Dedup to distinct file ids BEFORE slicing to maxDependencySeedFiles: two
+    // code chunks (entries) from the same file must count as ONE seed, not two
+    // -- otherwise a later, genuinely distinct file never gets attempted, and
+    // dependenciesOf/dependentsOf/impactOf get redundantly called twice for the
+    // same file (masked only by byFileId being keyed on fileId, so the second
+    // call's result silently overwrites the first). See PHASE_3_SPEC.md Phase
+    // 3.4, Dependency Enrichment -- "top maxDependencySeedFiles code items" means
+    // distinct files, not entries.
+    const distinctSeeds: CodeContextItem[] = [];
+    const seenFileIds = new Set<string>();
+    for (const item of codeItems) {
+      if (seenFileIds.has(item.fileId)) continue;
+      seenFileIds.add(item.fileId);
+      distinctSeeds.push(item);
+      if (distinctSeeds.length >= policy.maxDependencySeedFiles) break;
+    }
+
+    for (const seed of distinctSeeds) {
       const items: DependencyContextItem[] = [];
       try {
         const deps = (await this.dependencyGraph.dependenciesOf(seed.repositoryId, seed.fileId)).slice(0, policy.maxDirectDependenciesPerFile);

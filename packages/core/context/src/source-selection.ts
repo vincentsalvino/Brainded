@@ -61,15 +61,19 @@ export function selectSources(
   const ordered = applyStarvationSafetyNet(sortTier1(tier1));
 
   const result: ContextSourceWrapper[] = [];
-  let seedsUsed = 0;
+  // Seeded by distinct fileId, not by code entry: two chunks of the same file
+  // (both landing in the top tier-1 positions) must consume exactly one seed
+  // slot and splice that file's dependency block exactly once, not once per
+  // chunk -- see PHASE_3_SPEC.md Phase 3.4, Dependency Enrichment.
+  const seededFileIds = new Set<string>();
   for (const entry of ordered) {
     if (entry.sourceType === "memory") {
       result.push({ sourceType: "memory", content: entry.item.content, rank: 0, wasCompressed: entry.item.wasCompressed, item: entry.item });
       continue;
     }
     result.push({ sourceType: "code", content: entry.item.content, rank: 0, wasCompressed: entry.item.wasCompressed, item: entry.item });
-    if (seedsUsed < policy.maxDependencySeedFiles) {
-      seedsUsed++;
+    if (seededFileIds.size < policy.maxDependencySeedFiles && !seededFileIds.has(entry.item.fileId)) {
+      seededFileIds.add(entry.item.fileId);
       for (const dep of dependencyItemsBySeedFileId.get(entry.item.fileId) ?? []) {
         result.push({ sourceType: "dependency", content: dep.content, rank: 0, wasCompressed: dep.wasCompressed, item: dep });
       }
