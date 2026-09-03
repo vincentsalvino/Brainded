@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { globalScope, projectScope } from "@brain/contracts";
+import type { ContextItem, CodeContextItem } from "@brain/contracts";
 import {
   FakeMemoryRepository,
   FakeRetrievalStore,
@@ -15,6 +16,8 @@ import { MemoryService } from "@brain/memory";
 import { RetrievalService, CodeRetrievalService } from "@brain/retrieval";
 import { EventService } from "@brain/learning";
 import { DependencyGraphService } from "@brain/codebase";
+import { selectSources } from "@brain/context";
+import { optimizeSources } from "@brain/token";
 import { Gateway } from "./gateway.js";
 import { BrainError } from "./errors.js";
 
@@ -667,4 +670,129 @@ test("brain_context: mixed delivery assigns distinct, non-colliding ranks across
   const sourceRows = await eventStore.getContextEventSources(pack.contextId as string);
   const codeRow = sourceRows.find((r) => r.sourceType === "code")!;
   assert.equal(codeRow.rank, codeItem.rank, "context_event_sources.rank must match the delivered code item's true combined rank");
+});
+
+// --- Final-review Finding 1: dependency seed budget dedup ------------------
+
+test("brain_context: dependency enrichment seed budget is spent on distinct FILES, not code ENTRIES -- a 3rd distinct file must not starve when 2 of the top 3 code entries share a file", async () => {
+  const codebaseRepo = new FakeCodebaseRepository();
+  const { id: repositoryId } = await codebaseRepo.createRepository(projectScope("proj-a"), "/repo");
+  const now = new Date().toISOString();
+  const files = ["file-1", "file-2", "file-3", "file-9"].map((id) => ({
+    id, repositoryId, scope: projectScope("proj-a"), relativePath: `src/${id}.ts`, language: "typescript", sizeBytes: 1, contentHash: `h-${id}`, indexedAt: now,
+  }));
+  for (const f of files) await codebaseRepo.replaceFile(f, []);
+
+  const depStore = new FakeCodeDependencyStore();
+  // Only file-3 has a real edge -- file-1 and file-2 have none, so under BOTH
+  // the buggy and fixed code they contribute nothing. Only whether file-3 gets
+  // ATTEMPTED at all distinguishes the two: it is the 3rd DISTINCT file among
+  // the top code items, but the 4th ENTRY.
+  await depStore.replaceOutgoingEdges(repositoryId, "file-3", "h-file-3", [
+    { id: "edge-1", repositoryId, scope: projectScope("proj-a"), sourceFileId: "file-3", targetFileId: "file-9", specifier: "./nine", kind: "static_import", resolution: "internal", sourceLine: 1, createdAt: now },
+  ]);
+
+  const codeStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  // 4 query terms, each chunk matching one fewer than the last -> distinct,
+  // deterministic lexical scores (no embeddings synced, so semanticSearch
+  // contributes nothing -- scoring is pure word-overlap, descending: chunk-1 >
+  // chunk-2 > chunk-3 > chunk-4). chunk-1 and chunk-2 share fileId "file-1", so
+  // the top 3 code ENTRIES are chunk-1/chunk-2/chunk-3 -- only 2 DISTINCT files
+  // (file-1, file-2) -- exactly the reproduction in the finding.
+  codeStore.index({ id: "chunk-1", fileId: "file-1", repositoryId, scope: projectScope("proj-a"), relativePath: "src/file-1.ts", chunkIndex: 0, startLine: 1, endLine: 3, content: "zulu yankee xray whiskey", contentHash: "c1" });
+  codeStore.index({ id: "chunk-2", fileId: "file-1", repositoryId, scope: projectScope("proj-a"), relativePath: "src/file-1.ts", chunkIndex: 1, startLine: 4, endLine: 6, content: "zulu yankee xray", contentHash: "c2" });
+  codeStore.index({ id: "chunk-3", fileId: "file-2", repositoryId, scope: projectScope("proj-a"), relativePath: "src/file-2.ts", chunkIndex: 0, startLine: 1, endLine: 3, content: "zulu yankee", contentHash: "c3" });
+  codeStore.index({ id: "chunk-4", fileId: "file-3", repositoryId, scope: projectScope("proj-a"), relativePath: "src/file-3.ts", chunkIndex: 0, startLine: 1, endLine: 3, content: "zulu", contentHash: "c4" });
+
+  const { gateway } = setup([], undefined, { codeSearchStore: codeStore, codebaseRepo, depStore });
+  const pack = await gateway.getContext({ task: "zulu yankee xray whiskey", scope: projectScope("proj-a"), budget: { maxTokens: 5000 } });
+
+  assert.ok(
+    pack.dependencyItems?.some((d) => d.seedFileId === "file-3"),
+    `expected dependency enrichment for the 3rd DISTINCT file (file-3) even though 2 of the top 3 code ENTRIES share file-1 -- with the pre-fix entry-counted budget, file-3 is never attempted at all; got: ${JSON.stringify(pack.dependencyItems)}`,
+  );
+});
+
+// --- Final-review Finding 3: Starvation Safety is an ORDERING guarantee, not
+// an inclusion guarantee -- PHASE_3_SPEC.md's Starvation Safety section now
+// says so explicitly. This pins the actual behavior a saturated budget
+// produces: selectSources and optimizeSources are exercised directly (the same
+// two calls getContext composes, gateway.ts's `getContext` heterogeneous
+// branch) over hand-built ContextItem/CodeContextItem fixtures with exact,
+// chosen scores -- not through the full retrieval/ranking pipeline, whose two
+// independent fake stores each min-max normalize their own candidate set
+// (FakeRetrievalStore/FakeCodeSearchStore), making cross-source score
+// comparisons non-deterministic to hand-construct reliably. Both functions
+// exercised here are real, unmodified production code. --------------------
+
+test("Starvation Safety is an ordering guarantee, not an inclusion guarantee: a promoted item can still be entirely cut by a saturated budget", () => {
+  function memoryItem(memoryId: string, score: number, content: string): ContextItem {
+    return {
+      memoryId,
+      content,
+      type: "fact",
+      domain: null,
+      scope: globalScope(),
+      source: { origin: "system" },
+      confidence: 0.8,
+      score,
+      rank: 1,
+      wasCompressed: false,
+    };
+  }
+  function codeItem(chunkId: string, score: number, content: string): CodeContextItem {
+    return {
+      sourceType: "code",
+      chunkId,
+      repositoryId: "repo-1",
+      fileId: `file-${chunkId}`,
+      relativePath: `src/${chunkId}.ts`,
+      language: "typescript",
+      startLine: 1,
+      endLine: 10,
+      content,
+      score,
+      rank: 1,
+      wasCompressed: false,
+    };
+  }
+
+  // 3 real memory matches, scored well above the 1 real code match -> code
+  // naturally sorts to position 4, outside the top-3 window, and gets promoted
+  // by the starvation safety net into position 3 (ahead of mem3).
+  const mem1 = memoryItem("11111111-1111-1111-1111-111111111111", 0.9, "m".repeat(30));
+  const mem2 = memoryItem("22222222-2222-2222-2222-222222222222", 0.8, "m".repeat(270));
+  const mem3 = memoryItem("33333333-3333-3333-3333-333333333333", 0.7, "small");
+  const code1 = codeItem("c1", 0.5, "code content");
+
+  const wrappers = selectSources([mem1, mem2, mem3], [code1], new Map());
+
+  // Ordering guarantee: code1 has zero candidates in the natural top-3 (mem1,
+  // mem2, mem3 all outscore it), so it must be promoted into the top-3 window.
+  const codeWrapper = wrappers.find((w) => w.sourceType === "code")!;
+  assert.ok(codeWrapper.rank <= 3, `expected code1 promoted into the top-3 window (GUARANTEE_WINDOW), got rank ${codeWrapper.rank}`);
+  assert.deepEqual(
+    wrappers.map((w) => (w.sourceType === "memory" ? w.item.memoryId.slice(0, 1) : "code")),
+    ["1", "2", "code", "3"],
+    "expected order after promotion: mem1, mem2, code1, mem3",
+  );
+
+  // Saturated budget: mem1 (10 tokens) + mem2 (90 tokens) exactly exhaust a
+  // 100-token budget (estimateTokens = ceil(len/3)), so by the time fillBudget
+  // reaches code1 at rank 3, remaining budget is exactly 0 -- code1 is pushed
+  // straight to "unfitted" with cost:null and omitted without even attempting
+  // compression (fill.ts: `if (remaining <= 0) { unfitted.push({item, cost:
+  // null}); continue; }`), despite having been correctly promoted into the
+  // guaranteed window one step earlier.
+  const filled = optimizeSources(wrappers, { maxTokens: 100 });
+
+  assert.equal(
+    filled.items.some((w) => w.sourceType === "code"),
+    false,
+    "the promoted code item is entirely omitted under a saturated budget -- an ordering guarantee is not an inclusion guarantee (PHASE_3_SPEC.md Starvation Safety)",
+  );
+  assert.deepEqual(filled.items.map((w) => w.sourceType), ["memory", "memory"], "only mem1 and mem2 survive the budget");
+  assert.equal(filled.tokenCount, 100);
+  assert.equal(filled.omittedCount, 2, "code1 and mem3 are both omitted");
+  assert.ok(filled.truncated);
 });

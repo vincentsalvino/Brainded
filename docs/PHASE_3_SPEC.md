@@ -432,7 +432,7 @@ Two-tier selection, implemented as a new pure function `selectSources(memoryItem
 
 ## Starvation Safety
 
-Covered above; the concrete guarantee under test: a task with real memory matches AND real code matches never returns all-memory or all-code purely because of score-scale mismatch — but a task with zero code matches returns zero code items (never padding with irrelevant chunks to satisfy a quota), and symmetrically for memory.
+Covered above; the concrete guarantee under test is an ORDERING guarantee, not an inclusion guarantee: a task with real memory matches AND real code matches never SORTS to all-memory or all-code purely because of score-scale mismatch -- `selectSources` runs before budget enforcement (Token-Budget Integration) and promotes the starved source's best item into the top-3 window of the sequence it hands to `fillBudget`. Whether that promoted item actually survives into the delivered response is decided afterward by `fillBudget`, exactly like every other item in the sequence: under a saturated or tight budget, a promoted item can still be cut, and a source with real candidates -- correctly promoted -- can still end up with zero delivered items. `applyStarvationSafetyNet`'s own doc comment (`packages/core/context/src/source-selection.ts`) states this plainly: "Ordering guarantee, not an inclusion guarantee." A task with zero code matches still returns zero code items (never padding with irrelevant chunks to satisfy a quota), and symmetrically for memory -- that half of the guarantee holds unconditionally, since it requires no promotion, and no budget, to be true.
 
 ## Context Formatting
 
