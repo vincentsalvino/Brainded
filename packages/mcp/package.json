@@ -14,6 +14,7 @@
     "test": "node --test \"dist-test/**/*.test.js\""
   },
   "dependencies": {
+    "@brain/codebase": "0.1.0",
     "@brain/contracts": "0.1.0",
     "@brain/gateway": "0.1.0",
     "@brain/storage": "0.1.0",
