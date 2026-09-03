@@ -100,17 +100,22 @@ test(
         assert.ok(pack.tokenCount <= 3000, `task "${taskText}" exceeded budget`);
         assert.ok(pack.contextId, `task "${taskText}" must record a contextId`);
 
-        if (pack.items.length > 0) {
-          const outcome = await gateway.recordOutcome({
-            taskId: `pilot-${taskText.slice(0, 20)}`,
-            sessionId: null,
-            contextId: pack.contextId,
-            outcome: "success",
-            signal: null,
-            notes: `Phase 3.4 real pilot: ${taskText}`,
-          });
-          assert.equal(outcome.contextId, pack.contextId);
-        }
+        // Gateway.recordOutcome only calls requireKnownContext(contextId) --
+        // it never reads pack.items -- so gating this on pack.items.length
+        // (memory items specifically) was wrong: it made the outcome
+        // round-trip permanently unreachable for a coding pilot, whose DB is
+        // never seeded with memories. contextId is already confirmed truthy
+        // above; that's the only precondition recordOutcome actually has.
+        const outcome = await gateway.recordOutcome({
+          taskId: `pilot-${taskText.slice(0, 20)}`,
+          sessionId: null,
+          contextId: pack.contextId,
+          outcome: "success",
+          signal: null,
+          notes: `Phase 3.4 real pilot: ${taskText}`,
+        });
+        assert.equal(outcome.contextId, pack.contextId);
+        console.log(`  outcome recorded: ${outcome.contextId === pack.contextId}`);
       }
 
       db.close();
