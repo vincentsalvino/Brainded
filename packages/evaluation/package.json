@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "tsc -p tsconfig.test.json",
-    "test": "node --test \"dist-test/metrics.test.js\" \"dist-test/gate.test.js\" \"dist-test/efficiency.test.js\" \"dist-test/export.test.js\" \"dist-test/redundancy-gate.test.js\" \"dist-test/classification-metrics.test.js\" \"dist-test/hybrid-classifier-regression.test.js\" \"dist-test/h2-full-corroboration-regression.test.js\" \"dist-test/code-retrieval-evaluation.test.js\" \"dist-test/dependency-graph-evaluation.test.js\"",
+    "test": "node --test \"dist-test/metrics.test.js\" \"dist-test/gate.test.js\" \"dist-test/efficiency.test.js\" \"dist-test/export.test.js\" \"dist-test/redundancy-gate.test.js\" \"dist-test/classification-metrics.test.js\" \"dist-test/hybrid-classifier-regression.test.js\" \"dist-test/h2-full-corroboration-regression.test.js\" \"dist-test/code-retrieval-evaluation.test.js\" \"dist-test/dependency-graph-evaluation.test.js\" \"dist-test/coding-context-evaluation.test.js\"",
     "pretest:integration": "tsc -p tsconfig.test.json",
     "test:integration": "node --test \"dist-test/redundancy-benchmark.test.js\" \"dist-test/redundancy-boundary.test.js\" \"dist-test/code-self-repository.test.js\" \"dist-test/dependency-self-repository.test.js\""
   },
@@ -23,6 +23,7 @@
   "devDependencies": {
     "@brain/codebase": "0.1.0",
     "@brain/context": "0.1.0",
+    "@brain/gateway": "0.1.0",
     "@brain/ranking": "0.1.0",
     "@brain/retrieval": "0.1.0",
     "@brain/storage": "0.1.0",

@@ -11,6 +11,7 @@
     { "path": "../core/ranking" },
     { "path": "../core/retrieval" },
     { "path": "../core/test-fixtures" },
+    { "path": "../gateway" },
     { "path": "../storage" }
   ],
   "include": ["src/**/*.ts"]
