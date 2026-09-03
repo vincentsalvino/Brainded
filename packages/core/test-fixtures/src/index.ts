@@ -9,3 +9,5 @@ export * from "./fake-code-search-store.js";
 export * from "./fake-code-dependency-store.js";
 export * from "./code-dependency-conformance.js";
 export * from "./code-store-conformance.js";
+export * from "./fake-memory-performance-store.js";
+export * from "./memory-performance-conformance.js";

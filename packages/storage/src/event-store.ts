@@ -12,6 +12,7 @@ import type {
   ContextEventSource,
 } from "@brain/contracts";
 import { assertContextMembershipConsistent } from "@brain/contracts";
+import { applyFeedbackToPerformance, applyOutcomeToPerformance } from "./memory-performance-store.js";
 
 interface RetrievalRow {
   id: string;
@@ -49,7 +50,11 @@ interface ContextMemoryRow {
   token_count: number | null;
 }
 
-interface OutcomeRow {
+// Exported (not just used internally) so memory-performance-store.ts's rebuildAll() can read
+// raw rows straight off feedback_events/outcome_events and reuse the exact same row->event
+// mapping this store already uses -- one source of truth for "what a raw row means" rather than
+// a second, independently-maintained copy that could silently drift from this one.
+export interface OutcomeRow {
   id: string;
   timestamp: string;
   task_id: string;
@@ -60,7 +65,7 @@ interface OutcomeRow {
   notes: string | null;
 }
 
-interface FeedbackRow {
+export interface FeedbackRow {
   id: string;
   timestamp: string;
   memory_id: string;
@@ -143,7 +148,7 @@ function contextFromRow(r: ContextRow, memories: ContextEventMemory[]): ContextE
   };
 }
 
-function outcomeFromRow(r: OutcomeRow): OutcomeEvent {
+export function outcomeFromRow(r: OutcomeRow): OutcomeEvent {
   return {
     id: r.id,
     timestamp: r.timestamp,
@@ -156,7 +161,7 @@ function outcomeFromRow(r: OutcomeRow): OutcomeEvent {
   };
 }
 
-function feedbackFromRow(r: FeedbackRow): FeedbackEvent {
+export function feedbackFromRow(r: FeedbackRow): FeedbackEvent {
   return {
     id: r.id,
     timestamp: r.timestamp,
@@ -327,13 +332,20 @@ export class SqliteEventStore implements EventStore {
     return this.hydrateContexts([row])[0] as ContextEvent;
   }
 
+  /**
+   * Phase 4.1 (F12): the raw insert and its memory_performance delta (applyOutcomeToPerformance,
+   * memory-performance-store.ts) run in one transaction -- same atomicity discipline as
+   * recordContext's junction rows (P2-006). If the aggregate fan-out fails, the raw outcome must
+   * not persist either; F11's rebuildAll() is the recovery path for a bug in this logic, not a
+   * reason to accept a torn write here.
+   */
   async recordOutcome(event: Omit<OutcomeEvent, "id" | "timestamp">): Promise<OutcomeEvent> {
     const full: OutcomeEvent = { ...event, id: randomUUID(), timestamp: new Date().toISOString() };
-    this.db
-      .prepare(
-        `INSERT INTO outcome_events (id, timestamp, task_id, session_id, context_id, outcome, signal, notes) VALUES (?,?,?,?,?,?,?,?)`,
-      )
-      .run(
+    const insert = this.db.prepare(
+      `INSERT INTO outcome_events (id, timestamp, task_id, session_id, context_id, outcome, signal, notes) VALUES (?,?,?,?,?,?,?,?)`,
+    );
+    this.db.transaction(() => {
+      insert.run(
         full.id,
         full.timestamp,
         full.taskId,
@@ -343,16 +355,19 @@ export class SqliteEventStore implements EventStore {
         full.signal ? JSON.stringify(full.signal) : null,
         full.notes,
       );
+      applyOutcomeToPerformance(this.db, full);
+    })();
     return full;
   }
 
+  /** Phase 4.1 (F12): same atomicity discipline as recordOutcome above. */
   async recordFeedback(event: Omit<FeedbackEvent, "id" | "timestamp">): Promise<FeedbackEvent> {
     const full: FeedbackEvent = { ...event, id: randomUUID(), timestamp: new Date().toISOString() };
-    this.db
-      .prepare(
-        `INSERT INTO feedback_events (id, timestamp, memory_id, task_id, context_id, useful, reason, notes) VALUES (?,?,?,?,?,?,?,?)`,
-      )
-      .run(
+    const insert = this.db.prepare(
+      `INSERT INTO feedback_events (id, timestamp, memory_id, task_id, context_id, useful, reason, notes) VALUES (?,?,?,?,?,?,?,?)`,
+    );
+    this.db.transaction(() => {
+      insert.run(
         full.id,
         full.timestamp,
         full.memoryId,
@@ -362,6 +377,8 @@ export class SqliteEventStore implements EventStore {
         full.reason,
         full.notes,
       );
+      applyFeedbackToPerformance(this.db, full);
+    })();
     return full;
   }
 

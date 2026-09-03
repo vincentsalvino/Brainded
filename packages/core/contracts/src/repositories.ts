@@ -10,6 +10,7 @@ import type {
   MemoryMutationEvent,
   ContextEventSource,
 } from "./events.js";
+import type { MemoryPerformanceRaw } from "./learning.js";
 import type { CodebaseRecord, CodeFileRecord, CodeChunkRecord } from "./codebase.js";
 import type { CodeSearchQuery, CodeSearchResult, CodeSyncResult } from "./code-search.js";
 import type { CodeDependencyEdge, DependencyResolution } from "./code-dependency.js";
@@ -70,6 +71,20 @@ export interface EventStore {
   /** Additive code/dependency delivery telemetry -- see events.ts's ContextEventSource. */
   recordContextSources(contextEventId: string, sources: ContextEventSource[]): Promise<void>;
   getContextEventSources(contextEventId: string): Promise<ContextEventSource[]>;
+}
+
+/**
+ * Phase 4.1 (PHASE_4_SPEC.md 2.4). Read-batch plus rebuild only -- no `record*` method: the
+ * write path lives inside SqliteEventStore.recordFeedback/recordOutcome's own transaction
+ * (F12), the same way insertMutationEventRow is called synchronously inside
+ * SqliteMemoryRepository's transaction today rather than being a separate interface method
+ * callers must remember to invoke.
+ */
+export interface MemoryPerformanceStore {
+  /** Rows present in the returned Map only for memoryIds that have an aggregate; no entry means cold start. */
+  getPerformanceBatch(memoryIds: string[]): Promise<Map<string, MemoryPerformanceRaw>>;
+  /** Recomputes every row from raw feedback_events/outcome_events. Ground truth (F11) -- must equal incremental state exactly. */
+  rebuildAll(): Promise<{ memoriesRebuilt: number }>;
 }
 
 export interface EmbeddingProvider {

@@ -9,3 +9,4 @@ export * from "./codebase.js";
 export * from "./code-search.js";
 export * from "./code-dependency.js";
 export * from "./context-source.js";
+export * from "./learning.js";

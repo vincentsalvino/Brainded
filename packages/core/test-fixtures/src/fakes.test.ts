@@ -8,10 +8,12 @@ import { FakeCodebaseRepository } from "./fake-codebase-repository.js";
 import { FakeCodeSearchStore } from "./fake-code-search-store.js";
 import { FakeCodeDependencyStore } from "./fake-code-dependency-store.js";
 import { FakeEmbeddingProvider } from "./fake-embedding-provider.js";
+import { FakeMemoryPerformanceStore } from "./fake-memory-performance-store.js";
 import { oneOfEachMemoryType, crossScopeFixture, buildMemoryRecord } from "./fixtures.js";
 import { runRetrievalStoreConformance } from "./store-conformance.js";
 import { runCodeSearchStoreConformance } from "./code-store-conformance.js";
 import { runCodeDependencyStoreConformance } from "./code-dependency-conformance.js";
+import { runMemoryPerformanceStoreConformance } from "./memory-performance-conformance.js";
 
 test("fixtures: oneOfEachMemoryType covers all 12 types", () => {
   const records = oneOfEachMemoryType();
@@ -242,5 +244,74 @@ runCodeDependencyStoreConformance({
   name: "FakeCodeDependencyStore",
   async setup() {
     return { store: new FakeCodeDependencyStore(), cleanup: () => {} };
+  },
+});
+
+test("FakeMemoryPerformanceStore: seed() makes a row visible via getPerformanceBatch", async () => {
+  const store = new FakeMemoryPerformanceStore();
+  const raw = {
+    memoryId: "11111111-1111-4111-8111-111111111111",
+    scopeKey: "*",
+    usefulCount: 2,
+    notUsefulCount: 0,
+    redundantReasonCount: 0,
+    incorrectReasonCount: 0,
+    dilutedSuccessEvidence: 0,
+    dilutedFailureEvidence: 0,
+    successContextCount: 0,
+    failureContextCount: 0,
+    labeledContextCount: 2,
+    lastFeedbackAt: null,
+    lastOutcomeAt: null,
+  };
+  store.seed(raw);
+  assert.deepEqual((await store.getPerformanceBatch([raw.memoryId])).get(raw.memoryId), raw);
+});
+
+test("FakeMemoryPerformanceStore: getPerformanceBatchCallCount tracks real reads, for zero-I/O assertions", async () => {
+  const store = new FakeMemoryPerformanceStore();
+  assert.equal(store.getPerformanceBatchCallCount, 0);
+  await store.getPerformanceBatch([]);
+  await store.getPerformanceBatch(["11111111-1111-4111-8111-111111111111"]);
+  assert.equal(store.getPerformanceBatchCallCount, 2);
+});
+
+test("FakeMemoryPerformanceStore: simulateFailure makes getPerformanceBatch reject, for degradation tests", async () => {
+  const store = new FakeMemoryPerformanceStore();
+  store.simulateFailure(true);
+  await assert.rejects(() => store.getPerformanceBatch(["11111111-1111-4111-8111-111111111111"]));
+  store.simulateFailure(false);
+  await assert.doesNotReject(() => store.getPerformanceBatch([]));
+});
+
+test("FakeMemoryPerformanceStore: rebuildAll reports the current seeded row count", async () => {
+  const store = new FakeMemoryPerformanceStore();
+  assert.equal((await store.rebuildAll()).memoriesRebuilt, 0);
+  store.seed({
+    memoryId: "22222222-2222-4222-8222-222222222222",
+    scopeKey: "*",
+    usefulCount: 1,
+    notUsefulCount: 0,
+    redundantReasonCount: 0,
+    incorrectReasonCount: 0,
+    dilutedSuccessEvidence: 0,
+    dilutedFailureEvidence: 0,
+    successContextCount: 0,
+    failureContextCount: 0,
+    labeledContextCount: 1,
+    lastFeedbackAt: null,
+    lastOutcomeAt: null,
+  });
+  assert.equal((await store.rebuildAll()).memoriesRebuilt, 1);
+});
+
+// Phase 4.1's MemoryPerformanceStore read-side behavioural contract, run against the fake. The
+// same body runs against SqliteMemoryPerformanceStore in packages/storage.
+runMemoryPerformanceStoreConformance({
+  name: "FakeMemoryPerformanceStore",
+  async setup(seeds) {
+    const store = new FakeMemoryPerformanceStore();
+    for (const seed of seeds) store.seed(seed);
+    return { store, cleanup: () => {} };
   },
 });

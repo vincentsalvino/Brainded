@@ -87,6 +87,7 @@ test("migrations: a fresh database applies every migration, in filename order", 
     "0004_codebase_search.sql",
     "0005_codebase_dependencies.sql",
     "0006_context_sources.sql",
+    "0007_memory_performance.sql",
   ]);
   const tables = (
     db.raw.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as { name: string }[]
@@ -98,6 +99,7 @@ test("migrations: a fresh database applies every migration, in filename order", 
   assert.ok(tables.includes("code_dependency_edges"));
   assert.ok(tables.includes("code_dependency_state"));
   assert.ok(tables.includes("context_event_sources"));
+  assert.ok(tables.includes("memory_performance"));
   db.close();
 });
 
@@ -149,6 +151,7 @@ test("migrations: a Phase 1-style database (0001 applied, no ledger) upgrades wi
       "0004_codebase_search.sql",
       "0005_codebase_dependencies.sql",
       "0006_context_sources.sql",
+      "0007_memory_performance.sql",
     ]);
 
     assert.equal(

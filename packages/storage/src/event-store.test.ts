@@ -390,3 +390,95 @@ test("getContextEventSources: an unknown contextEventId returns an empty array, 
   assert.deepEqual(await store.getContextEventSources("00000000-0000-0000-0000-000000000000"), []);
   db.close();
 });
+
+// --- Phase 4.1 (F12): recordFeedback/recordOutcome update memory_performance atomically -----
+
+test("recordFeedback also updates memory_performance, in the same call", async () => {
+  const { db, events, retrieval, includedId } = await contextFixture();
+  const ctx = await events.recordContext({
+    retrievalEventId: retrieval.id,
+    scope: globalScope(),
+    taskId: "task-junction",
+    includedMemoryIds: [includedId],
+    omittedMemoryIds: [],
+    tokenCount: 1,
+    memories: [{ memoryId: includedId, included: true, rank: 1, tokenCount: 1 }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+    ...NO_TIMINGS,
+  });
+  await events.recordFeedback({ memoryId: includedId, taskId: "task-junction", contextId: ctx.id, useful: true, reason: null, notes: null });
+
+  const row = db.raw.prepare(`SELECT useful_count FROM memory_performance WHERE memory_id = ?`).get(includedId) as
+    | { useful_count: number }
+    | undefined;
+  assert.equal(row?.useful_count, 1);
+  db.close();
+});
+
+test("recordOutcome also updates memory_performance for every included memory, in the same call", async () => {
+  const { db, events, retrieval, includedId } = await contextFixture();
+  const ctx = await events.recordContext({
+    retrievalEventId: retrieval.id,
+    scope: globalScope(),
+    taskId: "task-junction",
+    includedMemoryIds: [includedId],
+    omittedMemoryIds: [],
+    tokenCount: 1,
+    memories: [{ memoryId: includedId, included: true, rank: 1, tokenCount: 1 }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+    ...NO_TIMINGS,
+  });
+  await events.recordOutcome({ taskId: "task-junction", sessionId: null, contextId: ctx.id, outcome: "success", signal: null, notes: null });
+
+  const row = db.raw.prepare(`SELECT success_context_count FROM memory_performance WHERE memory_id = ?`).get(includedId) as
+    | { success_context_count: number }
+    | undefined;
+  assert.equal(row?.success_context_count, 1);
+  db.close();
+});
+
+test("atomicity: if the memory_performance update fails, the raw feedback_events insert rolls back too", async () => {
+  const { db, events, includedId } = await contextFixture();
+  db.raw.exec(`DROP TABLE memory_performance`); // forces a real SQL error mid-transaction
+
+  await assert.rejects(() =>
+    events.recordFeedback({ memoryId: includedId, taskId: "task-junction", contextId: null, useful: true, reason: null, notes: null }),
+  );
+
+  assert.equal(
+    (db.raw.prepare(`SELECT COUNT(*) n FROM feedback_events`).get() as { n: number }).n,
+    0,
+    "the raw event must not persist if its aggregate update failed in the same transaction",
+  );
+  db.close();
+});
+
+test("atomicity: if the memory_performance update fails, the raw outcome_events insert rolls back too", async () => {
+  const { db, events, retrieval, includedId } = await contextFixture();
+  const ctx = await events.recordContext({
+    retrievalEventId: retrieval.id,
+    scope: globalScope(),
+    taskId: "task-junction",
+    includedMemoryIds: [includedId],
+    omittedMemoryIds: [],
+    tokenCount: 1,
+    memories: [{ memoryId: includedId, included: true, rank: 1, tokenCount: 1 }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+    ...NO_TIMINGS,
+  });
+  db.raw.exec(`DROP TABLE memory_performance`);
+
+  await assert.rejects(() =>
+    events.recordOutcome({ taskId: "task-junction", sessionId: null, contextId: ctx.id, outcome: "success", signal: null, notes: null }),
+  );
+
+  assert.equal(
+    (db.raw.prepare(`SELECT COUNT(*) n FROM outcome_events`).get() as { n: number }).n,
+    0,
+    "the raw event must not persist if its aggregate fan-out failed in the same transaction",
+  );
+  db.close();
+});
