@@ -393,8 +393,16 @@ export class Gateway {
    *
    * `tokenCount` is measured over the content ACTUALLY DELIVERED, using the same
    * estimator core/token used to enforce the budget -- so a compressed item
-   * reports its compressed size, and the included rows sum to
-   * ContextPack.tokenCount by construction rather than by coincidence.
+   * reports its compressed size. For a memory-only delivery (no coding
+   * capability wired, or nothing relevant found), the included rows' tokenCount
+   * sum equals ContextPack.tokenCount exactly, by construction. Since 3.4, that
+   * is no longer universally true: a mixed memory+code+dependency delivery folds
+   * code/dependency tokens into the SAME ContextPack.tokenCount (Token-Budget
+   * Integration -- one combined budget, one combined tokenCount), so for a mixed
+   * delivery the sum here is only the MEMORY PORTION of that total, a subset of
+   * it, never the whole. Code/dependency items' token costs are recorded
+   * separately, one row per candidate, in context_event_sources (see
+   * buildContextEventSources), not here.
    *
    * Omitted candidates get null for both rank and tokenCount: nothing was
    * delivered, so neither exists. Their pooled cost is reported separately as
