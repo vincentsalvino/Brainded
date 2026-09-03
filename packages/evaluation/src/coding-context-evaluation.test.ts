@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { globalScope } from "@brain/contracts";
-import { FakeMemoryRepository, FakeRetrievalStore, FakeEventStore, FakeCodeSearchStore, FakeCodebaseRepository, FakeCodeDependencyStore, FakeEmbeddingProvider, buildMemoryRecord } from "@brain/test-fixtures";
+import { FakeMemoryRepository, FakeRetrievalStore, FakeEventStore, FakeCodeSearchStore, FakeCodebaseRepository, FakeCodeDependencyStore, FakeEmbeddingProvider } from "@brain/test-fixtures";
 import { MemoryService } from "@brain/memory";
 import { RetrievalService, CodeRetrievalService } from "@brain/retrieval";
 import { EventService } from "@brain/learning";

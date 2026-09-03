@@ -24,6 +24,8 @@
     "@brain/codebase": "0.1.0",
     "@brain/context": "0.1.0",
     "@brain/gateway": "0.1.0",
+    "@brain/learning": "0.1.0",
+    "@brain/memory": "0.1.0",
     "@brain/ranking": "0.1.0",
     "@brain/retrieval": "0.1.0",
     "@brain/storage": "0.1.0",
