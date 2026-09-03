@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { globalScope, type Candidate } from "@brain/contracts";
 import { buildMemoryRecord } from "@brain/test-fixtures";
 import { rank } from "./rank.js";
@@ -11,7 +14,12 @@ function candidate(overrides: Partial<Candidate> & { signals: Candidate["signals
     memoryId,
     record: buildMemoryRecord({ id: memoryId, scope: globalScope(), confidence }),
     signals: overrides.signals,
+    ...(overrides.performance !== undefined ? { performance: overrides.performance } : {}),
   };
+}
+
+function perf(usefulnessSignal: number, evidenceMass = 10): Candidate["performance"] {
+  return { usefulnessSignal, evidenceMass };
 }
 
 test("ranks multiple candidates by score, highest first", () => {
@@ -141,4 +149,101 @@ test("architectural guard: Candidate objects never carry a pre-computed 'score' 
   const c = candidate({ signals: { lexicalScore: 0.5, semanticScore: 0.5 } });
   assert.equal("score" in c, false, "candidate generation (P1-008) must not compute a fused score");
   assert.equal("score" in c.signals, false);
+});
+
+// --- Phase 4.2: bounded learning adjustment ---------------------------------
+
+test("learning omitted entirely: a candidate carrying performance ranks exactly as if it didn't (F10 layer 2)", () => {
+  const withPerf = candidate({ signals: { lexicalScore: 0.5 }, performance: perf(1.0) });
+  const result = rank({ candidates: [withPerf] }); // no `learning` field at all
+  assert.equal(result[0]?.score, 0.5 * 0.5, "no boost applied when learning is absent from RankingInput");
+});
+
+test("learning.enabled=false: performance is ignored even though it's present", () => {
+  const withPerf = candidate({ signals: { lexicalScore: 0.5 }, performance: perf(1.0) });
+  const result = rank({ candidates: [withPerf], learning: { enabled: false, maxBoost: 0.15 } });
+  assert.equal(result[0]?.score, 0.5 * 0.5);
+});
+
+test("learning enabled, performance absent: score is the unboosted baseline (cold start)", () => {
+  const noPerf = candidate({ signals: { lexicalScore: 0.5 } });
+  const result = rank({ candidates: [noPerf], learning: { enabled: true, maxBoost: 0.15 } });
+  assert.equal(result[0]?.score, 0.5 * 0.5);
+});
+
+test("learning enabled, usefulnessSignal exactly 0.5: score is the unboosted baseline (F6 cold-start policy)", () => {
+  const neutral = candidate({ signals: { lexicalScore: 0.5 }, performance: perf(0.5) });
+  const result = rank({ candidates: [neutral], learning: { enabled: true, maxBoost: 0.15 } });
+  assert.equal(result[0]?.score, 0.5 * 0.5, "a neutral signal must be a true no-op, not an approximation of one");
+});
+
+test("learning enabled, usefulnessSignal=1 (max positive): score is boosted by exactly +maxBoost", () => {
+  const positive = candidate({ signals: { lexicalScore: 0.5 }, performance: perf(1.0) });
+  const result = rank({ candidates: [positive], learning: { enabled: true, maxBoost: 0.15 } });
+  const base = 0.5 * 0.5;
+  assert.ok(Math.abs((result[0]?.score ?? 0) - base * 1.15) < 1e-9);
+});
+
+test("learning enabled, usefulnessSignal=0 (max negative): score is penalized by exactly -maxBoost", () => {
+  const negative = candidate({ signals: { lexicalScore: 0.5 }, performance: perf(0.0) });
+  const result = rank({ candidates: [negative], learning: { enabled: true, maxBoost: 0.15 } });
+  const base = 0.5 * 0.5;
+  assert.ok(Math.abs((result[0]?.score ?? 0) - base * 0.85) < 1e-9);
+});
+
+test("boost is clamped even against an out-of-schema usefulnessSignal (defense in depth -- nothing parses Candidate at runtime)", () => {
+  const malformed = candidate({ signals: { lexicalScore: 1.0 }, performance: { usefulnessSignal: 99, evidenceMass: 1 } });
+  const result = rank({ candidates: [malformed], learning: { enabled: true, maxBoost: 0.15 } });
+  const base = 1.0 * 0.5;
+  assert.ok(Math.abs((result[0]?.score ?? 0) - base * 1.15) < 1e-9, "boost must never exceed +maxBoost regardless of input");
+});
+
+test("maxBoost=0: learning has no ranking effect at all, even at usefulnessSignal=1", () => {
+  const positive = candidate({ signals: { lexicalScore: 0.5 }, performance: perf(1.0) });
+  const result = rank({ candidates: [positive], learning: { enabled: true, maxBoost: 0 } });
+  assert.equal(result[0]?.score, 0.5 * 0.5);
+});
+
+test("actual worst-case bound: base-score ratio > (1+m)/(1-m) is guaranteed safe -- A stays above B", () => {
+  // m=0.15 -> ratio threshold ~1.3529. A=1.0, B=0.70 -> ratio ~1.4286, clears it.
+  const a = candidate({ signals: { lexicalScore: 1.0 }, performance: perf(0.0) }); // worst case: max penalty
+  const b = candidate({ signals: { lexicalScore: 0.7 }, performance: perf(1.0) }); // worst case: max boost
+  const result = rank({
+    candidates: [a, b],
+    weights: { lexical: 1, semantic: 0, tag: 0 },
+    learning: { enabled: true, maxBoost: 0.15 },
+  });
+  assert.equal(result[0]?.memoryId, a.memoryId, "A must stay above B even under the worst-case opposite adjustment");
+  assert.ok(Math.abs((result[0]?.score ?? 0) - 0.85) < 1e-9);
+  assert.ok(Math.abs((result[1]?.score ?? 0) - 0.805) < 1e-9);
+});
+
+test("actual worst-case bound: base-score ratio inside (1+m)/(1-m) CAN reorder -- not a bug, the documented bound", () => {
+  // A=1.0, B=0.80 -> ratio 1.25, inside ~1.3529 -- B is allowed to leapfrog A here.
+  const a = candidate({ signals: { lexicalScore: 1.0 }, performance: perf(0.0) });
+  const b = candidate({ signals: { lexicalScore: 0.8 }, performance: perf(1.0) });
+  const result = rank({
+    candidates: [a, b],
+    weights: { lexical: 1, semantic: 0, tag: 0 },
+    learning: { enabled: true, maxBoost: 0.15 },
+  });
+  assert.equal(result[0]?.memoryId, b.memoryId, "inside the true bound, a well-supported B is allowed to outrank A");
+  assert.ok(Math.abs((result[0]?.score ?? 0) - 0.92) < 1e-9);
+  assert.ok(Math.abs((result[1]?.score ?? 0) - 0.85) < 1e-9);
+});
+
+test("existing tie-break chain is preserved when learning is enabled but scores still tie", () => {
+  const lowConfidence = candidate({ signals: { lexicalScore: 0.5 }, performance: perf(0.7) }, 0.3);
+  const highConfidence = candidate({ signals: { lexicalScore: 0.5 }, performance: perf(0.7) }, 0.9);
+  const result = rank({
+    candidates: [lowConfidence, highConfidence],
+    learning: { enabled: true, maxBoost: 0.15 },
+  });
+  assert.equal(result[0]?.memoryId, highConfidence.memoryId, "identical boosts still tie on score -- confidence tie-break unchanged");
+});
+
+test("REGRESSION guard: no storage or learning dependency -- package.json declares neither, structural", () => {
+  const dir = dirname(fileURLToPath(import.meta.url));
+  const pkg = JSON.parse(readFileSync(join(dir, "..", "package.json"), "utf-8")) as { dependencies?: Record<string, string> };
+  assert.deepEqual(Object.keys(pkg.dependencies ?? {}), ["@brain/contracts"]);
 });

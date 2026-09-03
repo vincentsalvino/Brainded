@@ -17,7 +17,7 @@ import {
 } from "@brain/contracts";
 import type { MemoryService } from "@brain/memory";
 import { DEFAULT_NEAR_DUPLICATE_POLICY, type NearDuplicatePolicy, type RetrievalService, type CodeRetrievalService } from "@brain/retrieval";
-import type { EventService } from "@brain/learning";
+import type { EventService, LearningSignalService } from "@brain/learning";
 import type { DependencyGraphService, DependencyRef, ImpactRef } from "@brain/codebase";
 import { rank, computeScore, DEFAULT_RANKING_WEIGHTS } from "@brain/ranking";
 import { compileContext, formatCodeContent, formatDependencyContent, selectSources } from "@brain/context";
@@ -92,6 +92,14 @@ export class Gateway {
     // behavior for every caller that has no coding capability injected.
     private readonly codeRetrieval?: CodeRetrievalService,
     private readonly dependencyGraph?: DependencyGraphService,
+    // Phase 4.2 (F10, F2). Optional and undefined by default -- same shape as
+    // codeRetrieval/dependencyGraph above -- so every existing construction site
+    // (tests, and any future caller that doesn't wire it) stays byte-identical to
+    // pre-4.2 behavior. When wired, `learning.decorate()` and `learning.config`
+    // gate the two independent fail-safe layers documented on rank()/decorate()
+    // themselves: this class does not re-implement the enabled check, it just
+    // threads the one LearningSignalService instance's own config through.
+    private readonly learning?: LearningSignalService,
   ) {}
 
   /** brain_context: the full retrieval -> ranking -> context -> budget pipeline. */
@@ -106,13 +114,14 @@ export class Gateway {
     const retrievalStart = performance.now();
     try {
       candidates = await this.retrieval.getCandidates({ text: request.task, scope: request.scope, limit: DEFAULT_CANDIDATE_LIMIT });
+      if (this.learning) candidates = await this.learning.decorate(candidates);
     } catch (error) {
       throw this.wrapUnexpected(error, "retrieval failed");
     }
     const retrievalMs = performance.now() - retrievalStart;
 
     const rankingStart = performance.now();
-    const rankedResults: RankedResult[] = rank({ candidates, task: request.task });
+    const rankedResults: RankedResult[] = rank({ candidates, task: request.task, learning: this.learningRankingConfig() });
     const rankingMs = performance.now() - rankingStart;
 
     // 2C-004/005: redundancy pairs, computed only when enabled. A failure
@@ -492,10 +501,21 @@ export class Gateway {
         limit: request.limit ?? DEFAULT_CANDIDATE_LIMIT,
         filters: request.filters,
       });
+      if (this.learning) candidates = await this.learning.decorate(candidates);
     } catch (error) {
       throw this.wrapUnexpected(error, "search failed");
     }
-    return rank({ candidates, task: request.text });
+    return rank({ candidates, task: request.text, learning: this.learningRankingConfig() });
+  }
+
+  /**
+   * Builds rank()'s own activation gate straight off the one LearningSignalService instance's
+   * config -- not a second copy of LearningConfig threaded separately through this class. Absent
+   * (no LearningSignalService wired) returns undefined, which rank() already treats as disabled.
+   */
+  private learningRankingConfig(): { enabled: boolean; maxBoost: number } | undefined {
+    if (!this.learning) return undefined;
+    return { enabled: this.learning.config.enabled, maxBoost: this.learning.config.maxBoost };
   }
 
   /** brain_remember */

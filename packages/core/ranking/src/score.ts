@@ -14,6 +14,11 @@ export const DEFAULT_RANKING_WEIGHTS: RankingWeights = {
   tag: 0.1,
 };
 
+// Phase 4.2 (PHASE_4_DECISIONS.md F2). Bounds the post-score learning multiplier to +-15% by
+// default -- overridable per RankingInput.learning.maxBoost, same pattern as DEFAULT_RANKING_WEIGHTS.
+// See rank.ts for the actual worst-case non-reorder guarantee this bound implies.
+export const DEFAULT_MAX_BOOST = 0.15;
+
 /**
  * The entire scoring formula, in one small, directly-testable function -- not
  * hidden inside a larger orchestration routine (Step 7). A missing signal

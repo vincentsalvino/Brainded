@@ -1,5 +1,9 @@
 import type { RankingInput, RankedResult } from "@brain/contracts";
-import { computeScore, DEFAULT_RANKING_WEIGHTS } from "./score.js";
+import { computeScore, DEFAULT_RANKING_WEIGHTS, DEFAULT_MAX_BOOST } from "./score.js";
+
+function clamp(value: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, value));
+}
 
 /**
  * Phase 1 ranking baseline: a plain weighted sum over the two signals retrieval
@@ -18,9 +22,11 @@ import { computeScore, DEFAULT_RANKING_WEIGHTS } from "./score.js";
  *   already-normalized relevance score, letting "proven" patterns dominate
  *   regardless of query relevance, AUDIT_AEOS.md 11) is exactly the shape this
  *   avoids.
- * - historical usefulness / adaptive weights / learning-aware ranking: no usage
- *   history exists yet (cold start -- P1-013/014 only just started recording
- *   events). Phase 4's job once that data has accumulated; not fabricated here.
+ * - historical usefulness (Phase 4.2, PHASE_2_DECISIONS.md E7): folded in as a
+ *   bounded POST-score multiplier, not a fourth weighted term here -- computeScore
+ *   stays pure relevance, unchanged by this file's own Phase 4.2 addition below.
+ *   `input.learning` is this function's own explicit, independent activation gate,
+ *   never inferred from whether a candidate happens to carry `performance`.
  * - freshness, scope-specificity, source quality, contradiction risk: each has
  *   raw data available (timestamps, scope, provenance) but no Phase-1-defined
  *   policy for how it should affect ranking -- reserved, not invented.
@@ -37,11 +43,24 @@ import { computeScore, DEFAULT_RANKING_WEIGHTS } from "./score.js";
  */
 export function rank(input: RankingInput): RankedResult[] {
   const weights = input.weights ?? DEFAULT_RANKING_WEIGHTS;
+  // Phase 4.2: `input.learning` omitted (every pre-4.2 call site, untouched) behaves exactly like
+  // {enabled: false} -- learningEnabled is false, boost is 0 for every candidate, unconditionally,
+  // regardless of whether any candidate happens to carry `performance`. This is the second of two
+  // independent fail-safe layers (F10); Gateway not decorating is the first.
+  const learningEnabled = input.learning?.enabled === true;
+  const maxBoost = input.learning?.maxBoost ?? DEFAULT_MAX_BOOST;
 
-  const scored = input.candidates.map((candidate) => ({
-    candidate,
-    score: computeScore(candidate.signals, weights),
-  }));
+  const scored = input.candidates.map((candidate) => {
+    const base = computeScore(candidate.signals, weights);
+    // `!= null` catches both undefined (field omitted) and null (explicitly "no data") in one
+    // check -- Task 8's contract makes both mean the same thing: no learning signal.
+    const perf = candidate.performance;
+    const boost =
+      learningEnabled && perf != null
+        ? clamp(maxBoost * (perf.usefulnessSignal - 0.5) * 2, -maxBoost, maxBoost)
+        : 0;
+    return { candidate, score: base * (1 + boost) };
+  });
 
   // Deterministic ordering (Step 6): same candidates + same weights always
   // produce the same order. Never relies on object iteration, SQLite incidental

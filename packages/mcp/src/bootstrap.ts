@@ -2,6 +2,7 @@ import { openDatabase } from "@brain/storage";
 import { SqliteMemoryRepository } from "@brain/storage";
 import { SqliteRetrievalStore } from "@brain/storage";
 import { SqliteEventStore } from "@brain/storage";
+import { SqliteMemoryPerformanceStore } from "@brain/storage";
 import { LocalEmbeddingProvider } from "@brain/storage";
 import { SqliteCodeSearchStore } from "@brain/storage";
 import { SqliteCodeDependencyStore } from "@brain/storage";
@@ -9,7 +10,8 @@ import { SqliteCodebaseRepository } from "@brain/storage";
 import { MemoryService } from "@brain/memory";
 import { RetrievalService, DEFAULT_NEAR_DUPLICATE_POLICY } from "@brain/retrieval";
 import { CodeRetrievalService } from "@brain/retrieval";
-import { EventService } from "@brain/learning";
+import { EventService, LearningSignalService } from "@brain/learning";
+import { DEFAULT_LEARNING_CONFIG } from "@brain/contracts";
 import { DependencyGraphService } from "@brain/codebase";
 import { Gateway } from "@brain/gateway";
 
@@ -37,6 +39,7 @@ export function createBrain(dbPath: string): Brain {
   const codebaseRepository = new SqliteCodebaseRepository(db.raw);
   const codeSearchStore = new SqliteCodeSearchStore(db.raw, embeddings, db.vectorSearchAvailable);
   const codeDependencyStore = new SqliteCodeDependencyStore(db.raw);
+  const performanceStore = new SqliteMemoryPerformanceStore(db.raw);
 
   const gateway = new Gateway(
     new MemoryService(memoryRepository),
@@ -48,6 +51,10 @@ export function createBrain(dbPath: string): Brain {
     { enabled: false, ...DEFAULT_NEAR_DUPLICATE_POLICY },
     new CodeRetrievalService(codeSearchStore),
     new DependencyGraphService(codebaseRepository, codeDependencyStore),
+    // Phase 4.2 (F10): machinery wired end to end, DEFAULT_LEARNING_CONFIG.enabled
+    // stays false -- the default-enable decision belongs to Phase 4.3
+    // (docs/PHASE_4_DECISIONS.md F14/F15), same discipline as redundancy above.
+    new LearningSignalService(performanceStore, DEFAULT_LEARNING_CONFIG),
   );
 
   return { gateway, close: () => db.close() };

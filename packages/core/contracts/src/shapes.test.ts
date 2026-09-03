@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { CandidateSchema, RankedResultSchema, RankingWeightsSchema } from "./retrieval.js";
+import {
+  CandidateSchema,
+  RankedResultSchema,
+  RankingWeightsSchema,
+  RankingInputSchema,
+  CandidatePerformanceSchema,
+  RankingLearningConfigSchema,
+} from "./retrieval.js";
 import { ContextPackSchema, ContextItemSchema, CompileContextInputSchema, CompiledContextSchema } from "./context.js";
 import {
   RetrievalEventSchema,
@@ -60,6 +67,67 @@ test("RankedResult: diversity signal defaults to null (reserved, unused in Phase
 
 test("RankingWeights: rejects negative weights", () => {
   assert.throws(() => RankingWeightsSchema.parse({ lexical: -0.1, semantic: 0.5, tag: 0.2 }));
+});
+
+// --- Phase 4.2: Candidate.performance / RankingInput.learning --------------
+
+test("Candidate: performance omitted entirely still parses (backward compatibility, Task 8)", () => {
+  const candidate = CandidateSchema.parse({
+    memoryId: randomUUID(),
+    record: baseMemoryRecord(),
+    signals: { lexicalScore: 0.8 },
+  });
+  assert.equal("performance" in candidate, false);
+});
+
+test("Candidate: performance: null is accepted explicitly", () => {
+  const candidate = CandidateSchema.parse({
+    memoryId: randomUUID(),
+    record: baseMemoryRecord(),
+    signals: {},
+    performance: null,
+  });
+  assert.equal(candidate.performance, null);
+});
+
+test("Candidate: a valid performance object is accepted", () => {
+  const candidate = CandidateSchema.parse({
+    memoryId: randomUUID(),
+    record: baseMemoryRecord(),
+    signals: {},
+    performance: { usefulnessSignal: 0.7, evidenceMass: 12 },
+  });
+  assert.equal(candidate.performance?.usefulnessSignal, 0.7);
+  assert.equal(candidate.performance?.evidenceMass, 12);
+});
+
+test("CandidatePerformance: rejects usefulnessSignal outside [0, 1]", () => {
+  assert.throws(() => CandidatePerformanceSchema.parse({ usefulnessSignal: 1.1, evidenceMass: 0 }));
+  assert.throws(() => CandidatePerformanceSchema.parse({ usefulnessSignal: -0.1, evidenceMass: 0 }));
+});
+
+test("CandidatePerformance: rejects a negative evidenceMass", () => {
+  assert.throws(() => CandidatePerformanceSchema.parse({ usefulnessSignal: 0.5, evidenceMass: -1 }));
+});
+
+test("RankingInput: learning omitted entirely still parses (disabled semantics, backward compatibility)", () => {
+  const input = RankingInputSchema.parse({ candidates: [] });
+  assert.equal("learning" in input, false);
+});
+
+test("RankingInput: an explicit learning.enabled=false is accepted", () => {
+  const input = RankingInputSchema.parse({ candidates: [], learning: { enabled: false, maxBoost: 0.15 } });
+  assert.equal(input.learning?.enabled, false);
+});
+
+test("RankingLearningConfig: rejects maxBoost outside [0, 1]", () => {
+  assert.throws(() => RankingLearningConfigSchema.parse({ enabled: true, maxBoost: 1.5 }));
+  assert.throws(() => RankingLearningConfigSchema.parse({ enabled: true, maxBoost: -0.01 }));
+});
+
+test("RankingLearningConfig: maxBoost may be exactly 0 or exactly 1 (boundary-valid, not silently tightened)", () => {
+  assert.equal(RankingLearningConfigSchema.parse({ enabled: true, maxBoost: 0 }).maxBoost, 0);
+  assert.equal(RankingLearningConfigSchema.parse({ enabled: true, maxBoost: 1 }).maxBoost, 1);
 });
 
 test("ContextPack: rejects a negative tokenCount", () => {

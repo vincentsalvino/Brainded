@@ -14,10 +14,12 @@ import {
 } from "@brain/test-fixtures";
 import { MemoryService } from "@brain/memory";
 import { RetrievalService, CodeRetrievalService } from "@brain/retrieval";
-import { EventService } from "@brain/learning";
+import { EventService, LearningSignalService } from "@brain/learning";
 import { DependencyGraphService } from "@brain/codebase";
 import { selectSources } from "@brain/context";
 import { optimizeSources } from "@brain/token";
+import { FakeMemoryPerformanceStore } from "@brain/test-fixtures";
+import type { LearningConfig } from "@brain/contracts";
 import { Gateway } from "./gateway.js";
 import { BrainError } from "./errors.js";
 
@@ -25,6 +27,7 @@ function setup(
   seedRecords: ReturnType<typeof buildMemoryRecord>[] = [],
   redundancy?: { enabled: boolean; candidateFloor: number; containmentThreshold: number },
   coding?: { codeSearchStore?: FakeCodeSearchStore; codebaseRepo?: FakeCodebaseRepository; depStore?: FakeCodeDependencyStore },
+  learning?: { store: FakeMemoryPerformanceStore; config: LearningConfig },
 ) {
   const eventStore = new FakeEventStore();
   const memoryRepo = new FakeMemoryRepository(eventStore);
@@ -32,6 +35,7 @@ function setup(
   const codeRetrieval = coding?.codeSearchStore ? new CodeRetrievalService(coding.codeSearchStore) : undefined;
   const dependencyGraph =
     coding?.codebaseRepo && coding?.depStore ? new DependencyGraphService(coding.codebaseRepo, coding.depStore) : undefined;
+  const learningService = learning ? new LearningSignalService(learning.store, learning.config) : undefined;
   const gateway = new Gateway(
     new MemoryService(memoryRepo),
     new RetrievalService(retrievalStore),
@@ -40,6 +44,7 @@ function setup(
     redundancy,
     codeRetrieval,
     dependencyGraph,
+    learningService,
   );
   return { gateway, memoryRepo, retrievalStore, eventStore };
 }
@@ -96,6 +101,103 @@ test("brain_search: returns ranked results, not a budget-enforced ContextPack", 
   assert.ok(Array.isArray(results));
   assert.ok(results.length > 0);
   assert.ok("rank" in (results[0] ?? {}));
+});
+
+// --- Phase 4.2: bounded learning integration --------------------------------
+
+const LEARNING_DISABLED: LearningConfig = { enabled: false, k: 5, outcomeWeight: 0, maxBoost: 0.15 };
+const LEARNING_ENABLED: LearningConfig = { enabled: true, k: 5, outcomeWeight: 0, maxBoost: 0.15 };
+
+test("learning wired but disabled: performs zero performance-store reads (F10 layer 1)", async () => {
+  const record = buildMemoryRecord({ content: "conventional commits for every pull request", scope: globalScope() });
+  const store = new FakeMemoryPerformanceStore();
+  const { gateway } = setup([record], undefined, undefined, { store, config: LEARNING_DISABLED });
+
+  await gateway.getContext({ task: "conventional commits", scope: globalScope(), budget: { maxTokens: 1000 } });
+
+  assert.equal(store.getPerformanceBatchCallCount, 0);
+});
+
+test("learning enabled: getContext's delivered score reflects the learned boost", async () => {
+  const a = buildMemoryRecord({ content: "database access must use the repository layer", scope: globalScope() });
+  const b = buildMemoryRecord({ content: "database access must use the repository layer twice", scope: globalScope() });
+  const store = new FakeMemoryPerformanceStore();
+  store.seed({
+    memoryId: a.id, scopeKey: "*", usefulCount: 10, notUsefulCount: 0, redundantReasonCount: 0,
+    incorrectReasonCount: 0, dilutedSuccessEvidence: 0, dilutedFailureEvidence: 0,
+    successContextCount: 0, failureContextCount: 0, labeledContextCount: 10,
+    lastFeedbackAt: null, lastOutcomeAt: null,
+  });
+
+  const disabled = setup([a, b], undefined, undefined, { store, config: LEARNING_DISABLED });
+  const packDisabled = await disabled.gateway.getContext({ task: "database repository layer", scope: globalScope(), budget: { maxTokens: 2000 } });
+  const scoreDisabled = packDisabled.items.find((i) => i.memoryId === a.id)?.score;
+
+  const enabled = setup([a, b], undefined, undefined, { store, config: LEARNING_ENABLED });
+  const packEnabled = await enabled.gateway.getContext({ task: "database repository layer", scope: globalScope(), budget: { maxTokens: 2000 } });
+  const scoreEnabled = packEnabled.items.find((i) => i.memoryId === a.id)?.score;
+
+  assert.ok(scoreDisabled !== undefined && scoreEnabled !== undefined);
+  assert.ok(scoreEnabled > scoreDisabled, `learned boost must raise A's delivered score (disabled=${scoreDisabled}, enabled=${scoreEnabled})`);
+});
+
+test("learning enabled: brain_search's ranked results reflect the learned boost too", async () => {
+  const a = buildMemoryRecord({ content: "repository pattern for data access", scope: globalScope() });
+  const store = new FakeMemoryPerformanceStore();
+  store.seed({
+    memoryId: a.id, scopeKey: "*", usefulCount: 10, notUsefulCount: 0, redundantReasonCount: 0,
+    incorrectReasonCount: 0, dilutedSuccessEvidence: 0, dilutedFailureEvidence: 0,
+    successContextCount: 0, failureContextCount: 0, labeledContextCount: 10,
+    lastFeedbackAt: null, lastOutcomeAt: null,
+  });
+
+  const disabled = setup([a], undefined, undefined, { store, config: LEARNING_DISABLED });
+  const [resultDisabled] = await disabled.gateway.search({ text: "repository pattern for data access", scope: globalScope() });
+
+  const enabled = setup([a], undefined, undefined, { store, config: LEARNING_ENABLED });
+  const [resultEnabled] = await enabled.gateway.search({ text: "repository pattern for data access", scope: globalScope() });
+
+  assert.ok(resultDisabled && resultEnabled && resultEnabled.score > resultDisabled.score);
+});
+
+test("learning enabled: cross-project scope isolation is unaffected -- global-bucket-only (F8) reads by memoryId, never by scope", async () => {
+  const recordA = buildMemoryRecord({ content: "authentication uses JWT tokens", scope: globalScope() });
+  const store = new FakeMemoryPerformanceStore();
+  store.seed({
+    memoryId: recordA.id, scopeKey: "*", usefulCount: 10, notUsefulCount: 0, redundantReasonCount: 0,
+    incorrectReasonCount: 0, dilutedSuccessEvidence: 0, dilutedFailureEvidence: 0,
+    successContextCount: 0, failureContextCount: 0, labeledContextCount: 10,
+    lastFeedbackAt: null, lastOutcomeAt: null,
+  });
+  // recordA is global (visible everywhere); only project-b is queried below. A learning-enabled
+  // decoration must not somehow leak project-a-only data into a project-b query, or vice versa --
+  // scope isolation is RetrievalService's concern, entirely upstream of decoration.
+  const other = buildMemoryRecord({ content: "unrelated project-a secret", scope: { kind: "project", id: "project-a" } });
+  const { gateway } = setup([recordA, other], undefined, undefined, { store, config: LEARNING_ENABLED });
+
+  const result = await gateway.search({ text: "JWT authentication project-a secret", scope: { kind: "project", id: "project-b" } });
+
+  assert.ok(result.every((r) => r.memoryId !== other.id), "a project-a-only record must never appear under a project-b query, learning enabled or not");
+});
+
+test("learning enabled: code items are never decorated with memory performance -- computeScore path untouched", async () => {
+  const codeSearchStore = new FakeCodeSearchStore(new FakeEmbeddingProvider());
+  codeSearchStore.index({
+    id: "c1", fileId: "f1", repositoryId: "repo-1", scope: globalScope(), relativePath: "src/a.ts",
+    chunkIndex: 0, startLine: 1, endLine: 1, content: "conventional commits example", contentHash: "h1",
+  });
+  const store = new FakeMemoryPerformanceStore();
+  const disabled = setup([], undefined, { codeSearchStore }, { store, config: LEARNING_DISABLED });
+  const enabled = setup([], undefined, { codeSearchStore }, { store, config: LEARNING_ENABLED });
+
+  const packDisabled = await disabled.gateway.getContext({ task: "conventional commits", scope: globalScope(), budget: { maxTokens: 2000 } });
+  const packEnabled = await enabled.gateway.getContext({ task: "conventional commits", scope: globalScope(), budget: { maxTokens: 2000 } });
+
+  assert.deepEqual(
+    packDisabled.codeItems?.map((i) => i.score),
+    packEnabled.codeItems?.map((i) => i.score),
+    "code item scores must be identical regardless of the memory learning config -- code is never decorated",
+  );
 });
 
 test("brain_remember creates a real memory, retrievable afterward", async () => {

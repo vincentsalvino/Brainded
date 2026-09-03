@@ -5,12 +5,18 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { globalScope, projectScope } from "@brain/contracts";
+import { globalScope, projectScope, DEFAULT_LEARNING_CONFIG, type LearningConfig } from "@brain/contracts";
 import { FakeEmbeddingProvider } from "@brain/test-fixtures";
-import { openDatabase, SqliteMemoryRepository, SqliteRetrievalStore, SqliteEventStore } from "@brain/storage";
+import {
+  openDatabase,
+  SqliteMemoryRepository,
+  SqliteRetrievalStore,
+  SqliteEventStore,
+  SqliteMemoryPerformanceStore,
+} from "@brain/storage";
 import { MemoryService } from "@brain/memory";
 import { RetrievalService } from "@brain/retrieval";
-import { EventService } from "@brain/learning";
+import { EventService, LearningSignalService } from "@brain/learning";
 import { Gateway } from "@brain/gateway";
 import { registerBrainTools } from "./server.js";
 
@@ -31,19 +37,28 @@ import { registerBrainTools } from "./server.js";
 // task's Step 15: agent-agnosticism must hold for a client the Brain has never
 // seen, not just the ones on the shipping roadmap).
 
-function setup() {
+function setup(learningConfig?: LearningConfig) {
   const db = openDatabase(":memory:");
   const embeddings = new FakeEmbeddingProvider();
   const memoryRepository = new SqliteMemoryRepository(db.raw, embeddings);
   const retrievalStore = new SqliteRetrievalStore(db.raw, embeddings, db.vectorSearchAvailable);
   const eventStore = new SqliteEventStore(db.raw);
+  const performanceStore = new SqliteMemoryPerformanceStore(db.raw);
   const gateway = new Gateway(
     new MemoryService(memoryRepository),
     new RetrievalService(retrievalStore),
     new EventService(eventStore),
     { vectorSearchAvailable: db.vectorSearchAvailable },
+    undefined,
+    undefined,
+    undefined,
+    // Phase 4.2: real SqliteMemoryPerformanceStore always wired here (this file
+    // already exercises the real stack throughout) -- `learningConfig` controls
+    // only whether it's ENABLED, defaulting to DEFAULT_LEARNING_CONFIG (disabled),
+    // matching production's own bootstrap.ts default exactly.
+    new LearningSignalService(performanceStore, learningConfig ?? DEFAULT_LEARNING_CONFIG),
   );
-  return { db, eventStore, gateway };
+  return { db, eventStore, performanceStore, gateway };
 }
 
 async function connectCustomAgent(gateway: Gateway) {
@@ -428,6 +443,133 @@ test("P2-005 ACCEPTANCE: an unknown contextId is refused over the wire, not sile
   assert.equal(result.isError, true, "an unverifiable correlation id must fail loudly");
   assert.equal((await eventStore.getEventsForMemory(memory.id)).length, 0, "and must store nothing");
 
+  await close();
+  db.close();
+});
+
+// --- Phase 4.2: the critical end-to-end learning test -----------------------
+//
+// docs/PHASE_4_SPEC.md 10 / BUILD_PLAN.md's original acceptance shape: call
+// brain_feedback for a specific memory, then brain_context/brain_recall for a
+// query it matches, and assert its ranking measurably changed -- through the
+// REAL stack (real SQLite, real recordFeedback transactional path, real
+// memory_performance aggregate, real decorate()/rank()), not by editing
+// memory_performance directly. This is deliberately the single most
+// expensive test in this file.
+
+async function rememberAndGetId(client: Awaited<ReturnType<typeof connectCustomAgent>>["client"], content: string) {
+  const created = parsed(
+    (await client.callTool({
+      name: "brain_remember",
+      arguments: { type: "constraint", content, scope: projectScope("learning-e2e"), confidence: 1 },
+    })) as CallToolResult,
+  ) as { id: string };
+  return created.id;
+}
+
+async function contextOrder(client: Awaited<ReturnType<typeof connectCustomAgent>>["client"], task: string) {
+  const pack = parsed(
+    (await client.callTool({
+      name: "brain_context",
+      arguments: { task, scope: projectScope("learning-e2e"), maxTokens: 4000 },
+    })) as CallToolResult,
+  ) as { items: { memoryId: string; score: number }[] };
+  return pack.items;
+}
+
+test("CRITICAL E2E: brain_feedback -> durable aggregate -> measurably changed ranking -> exact revert on disable", async () => {
+  const learningConfig = { ...DEFAULT_LEARNING_CONFIG, enabled: true };
+  const { db, gateway } = setup(learningConfig);
+  const { client, close } = await connectCustomAgent(gateway);
+  const task = "database access must go through the repository layer";
+
+  // A and B are near-identical -- comparably relevant to the query on purpose.
+  // C shares no vocabulary with the query at all -- clearly irrelevant.
+  const idA = await rememberAndGetId(client, "database access must go through the repository layer, never directly from route handlers");
+  const idB = await rememberAndGetId(client, "database access must go through the repository layer, never directly from any route handler");
+  const idC = await rememberAndGetId(client, "the weather tomorrow is sunny with a light southerly breeze");
+
+  // --- BASELINE: learning wired but disabled ---
+  await client.callTool({ name: "brain_status", arguments: {} }); // smoke: connection still healthy
+  const baselineDisabled = await contextOrder(client, task);
+  // Re-run with the SAME gateway instance but force-disabled per-call is not
+  // exposed (correctly -- no per-request learning toggle, per this task's
+  // brief); instead take the true starting order directly, before any
+  // feedback exists, which is definitionally the pre-learning baseline.
+  const baselineOrder = baselineDisabled.map((i) => i.memoryId);
+  assert.ok(baselineOrder.includes(idA) && baselineOrder.includes(idB) && baselineOrder.includes(idC));
+  const [aBase, bBase] = [
+    baselineDisabled.find((i) => i.memoryId === idA)?.score ?? 0,
+    baselineDisabled.find((i) => i.memoryId === idB)?.score ?? 0,
+  ];
+  // This fixture only proves what it claims to prove if A/B start close enough
+  // that the true worst-case bound (PHASE_4_SPEC.md 7) can actually flip them --
+  // assert the precondition rather than silently relying on it.
+  const ratio = Math.max(aBase, bBase) / Math.min(aBase, bBase || 1e-9);
+  assert.ok(ratio < (1 + learningConfig.maxBoost) / (1 - learningConfig.maxBoost), `fixture precondition: A/B baseline ratio ${ratio} must be inside the reorder-possible bound`);
+
+  // --- EVIDENCE: through the real brain_feedback path, across distinct contexts ---
+  for (let i = 0; i < 8; i++) {
+    const ctx = parsed(
+      (await client.callTool({ name: "brain_context", arguments: { task, scope: projectScope("learning-e2e"), maxTokens: 4000 } })) as CallToolResult,
+    ) as { contextId: string };
+    await client.callTool({ name: "brain_feedback", arguments: { memoryId: idB, contextId: ctx.contextId, useful: true } });
+    await client.callTool({ name: "brain_feedback", arguments: { memoryId: idA, contextId: ctx.contextId, useful: false, reason: "irrelevant" } });
+  }
+
+  // --- ENABLED: same query, evidence now durable in memory_performance ---
+  const enabledOrder = (await contextOrder(client, task)).map((i) => i.memoryId);
+  const rankA = enabledOrder.indexOf(idA);
+  const rankB = enabledOrder.indexOf(idB);
+  const rankC = enabledOrder.indexOf(idC);
+  assert.ok(rankB < rankA, `B must now rank above A (order: ${enabledOrder.join(",")})`);
+  assert.ok(rankC > rankA && rankC > rankB, "C must remain below both -- its base relevance clears the true worst-case bound, not the old false 15% one");
+
+  // --- DISABLED AGAIN: same durable data (same db.raw), learning off -> exact original order ---
+  const disabledGateway = new Gateway(
+    new MemoryService(new SqliteMemoryRepository(db.raw, new FakeEmbeddingProvider())),
+    new RetrievalService(new SqliteRetrievalStore(db.raw, new FakeEmbeddingProvider(), db.vectorSearchAvailable)),
+    new EventService(new SqliteEventStore(db.raw)),
+    { vectorSearchAvailable: db.vectorSearchAvailable },
+    undefined,
+    undefined,
+    undefined,
+    new LearningSignalService(new SqliteMemoryPerformanceStore(db.raw), { ...DEFAULT_LEARNING_CONFIG, enabled: false }),
+  );
+  const disabledConn = await connectCustomAgent(disabledGateway);
+  const revertedOrder = (await contextOrder(disabledConn.client, task)).map((i) => i.memoryId);
+  assert.deepEqual(revertedOrder, baselineOrder, "disabling must restore the exact original order, not merely a similar one");
+
+  await disabledConn.close();
+  await close();
+  db.close();
+});
+
+test("Phase 4.2 never writes memory confidence, status, content, or scope -- ranking projection only", async () => {
+  const { db, gateway } = setup({ ...DEFAULT_LEARNING_CONFIG, enabled: true });
+  const { client, close } = await connectCustomAgent(gateway);
+
+  const before = parsed(
+    (await client.callTool({
+      name: "brain_remember",
+      arguments: { type: "constraint", content: "immutable check", scope: globalScope(), confidence: 0.5 },
+    })) as CallToolResult,
+  ) as { id: string; confidence: number; status: string; content: string };
+
+  for (let i = 0; i < 5; i++) {
+    const ctx = parsed(
+      (await client.callTool({ name: "brain_context", arguments: { task: "immutable check", scope: globalScope(), maxTokens: 1000 } })) as CallToolResult,
+    ) as { contextId: string };
+    await client.callTool({ name: "brain_feedback", arguments: { memoryId: before.id, contextId: ctx.contextId, useful: true } });
+  }
+
+  const after = parsed(
+    (await client.callTool({ name: "brain_recall", arguments: { scope: globalScope(), id: before.id } })) as CallToolResult,
+  ) as { confidence: number; status: string; content: string };
+
+  assert.equal(after.confidence, before.confidence);
+  assert.equal(after.status, before.status);
+  assert.equal(after.content, before.content);
   await close();
   db.close();
 });

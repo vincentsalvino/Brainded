@@ -33,11 +33,28 @@ export const CandidateSignalsSchema = z
   .strict();
 export type CandidateSignals = z.infer<typeof CandidateSignalsSchema>;
 
+// Phase 4.2 (PHASE_4_SPEC.md 2.3). rank()'s two new optional fields, as one object -- always
+// produced and consumed together, so "no data" (absent/null) can never be confused with "neutral
+// data" (evidenceMass: 0), which reading two loose fields independently would risk.
+export const CandidatePerformanceSchema = z
+  .object({
+    usefulnessSignal: z.number().min(0).max(1),
+    evidenceMass: z.number().nonnegative(),
+  })
+  .strict();
+export type CandidatePerformance = z.infer<typeof CandidatePerformanceSchema>;
+
 export const CandidateSchema = z
   .object({
     memoryId: z.string().uuid(),
     record: MemoryRecordSchema,
     signals: CandidateSignalsSchema,
+    // .nullable().optional(), not .default(null): nothing calls CandidateSchema.parse() on
+    // constructed candidates today (FakeRetrievalStore/SqliteRetrievalStore/mergeCandidates all
+    // build plain object literals), so a default would never actually apply -- and would have
+    // made every existing producer's object literal fail to typecheck by requiring the field.
+    // undefined and null both mean "no learning signal"; rank() treats them identically.
+    performance: CandidatePerformanceSchema.nullable().optional(),
   })
   .strict();
 export type Candidate = z.infer<typeof CandidateSchema>;
@@ -51,11 +68,24 @@ export const RankingWeightsSchema = z
   .strict();
 export type RankingWeights = z.infer<typeof RankingWeightsSchema>;
 
+// Phase 4.2 (PHASE_4_SPEC.md 2.3a). rank()'s own, independent activation gate -- deliberately not
+// inferred from whether any candidate happens to carry `performance`, so disabling learning is one
+// explicit, testable boolean. Omitted entirely (every pre-4.2 RankingInput) behaves exactly like
+// {enabled: false}.
+export const RankingLearningConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    maxBoost: z.number().min(0).max(1),
+  })
+  .strict();
+export type RankingLearningConfig = z.infer<typeof RankingLearningConfigSchema>;
+
 export const RankingInputSchema = z
   .object({
     candidates: z.array(CandidateSchema),
     task: z.string().min(1).optional(),
     weights: RankingWeightsSchema.optional(),
+    learning: RankingLearningConfigSchema.optional(),
   })
   .strict();
 export type RankingInput = z.infer<typeof RankingInputSchema>;
