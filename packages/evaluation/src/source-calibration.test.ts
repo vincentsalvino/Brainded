@@ -34,11 +34,16 @@ test("[evaluation] Phase 3.4 source score calibration: real memory vs. code scor
 
   const stats = (values: number[]): { min: number; max: number; mean: number; median: number } => {
     const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    // Standard median: average the two middle elements for even-length input,
+    // not just the upper one -- sorted.length % 2 === 0 skips the average and
+    // silently returns the wrong element otherwise.
+    const median = sorted.length === 0 ? 0 : sorted.length % 2 === 0 ? ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2 : (sorted[mid] ?? 0);
     return {
       min: sorted[0] ?? 0,
       max: sorted[sorted.length - 1] ?? 0,
       mean: values.reduce((a, b) => a + b, 0) / (values.length || 1),
-      median: sorted[Math.floor(sorted.length / 2)] ?? 0,
+      median,
     };
   };
 
