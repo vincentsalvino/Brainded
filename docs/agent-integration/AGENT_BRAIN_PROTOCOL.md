@@ -15,8 +15,12 @@ instruction file (`AGENTS.md`, `CLAUDE.md`), not here.
 
 Call `brain_context` at the start of any task with:
 - `task` — a short natural-language description of what you're about to do.
-- `scope` — `{ kind: "project", id: <project-id> }` for project-specific work,
-  or the global scope for cross-project knowledge.
+- `scope` — `{ kind: "project", id: <project-id> }` for project-specific
+  work, or `{ kind: "global", id: null }` for cross-project knowledge (`id`
+  is a required field on this object, just always `null` for global scope).
+  A third kind, `"session"` (`{ kind: "session", id: <session-id> }`),
+  scopes a memory to a single session — see
+  `packages/core/contracts/src/scope.ts` for the full definition.
 - `taskId` — a stable identifier for this unit of work (mint one UUID per
   task, reuse it for every later call in this section).
 - `maxTokens` — your context budget for this call.
@@ -43,6 +47,10 @@ not something true only for this run:
   obvious from reading the code once.
 - A pattern worth repeating (`type: "pattern"`).
 
+These are illustrative examples, not the exhaustive list — see
+`MEMORY_TYPES` in `packages/core/contracts/src/memory.ts` for all twelve
+valid values.
+
 Do not write a memory for: information already fully derivable from the
 current code/config (memory is for facts that decay or that took real
 investigation to establish, not a cache of `grep` output), or anything true
@@ -67,12 +75,20 @@ it accurately now costs nothing and matters once it's enabled.
 
 Once the task itself concludes, call `brain_record_outcome` with the same
 `taskId`, the `contextId` from the delivery this task actually used, and
-`outcome`: `"success"`, `"failure"`, `"partial"`, or `"unknown"`. Include a
-`signal` object with any structured detail you have (e.g. `{ testsPassed:
-true }`) — free-form, but concrete signals are more useful than none.
+`outcome`: `"success"`, `"failure"`, `"partial"`, or `"unknown"`. Optionally
+include a `signal` object — it accepts exactly three optional fields and no
+others: `testsPassed` (boolean), `reviewScore` (number, 0-1), `humanEdited`
+(boolean). The schema is `.strict()`; any other key throws a validation
+error instead of being accepted.
 
 ## What this protocol deliberately does not cover
 
 Which agent you are, how you decide what counts as "useful," or anything about
 your own reasoning process — none of that belongs here. This document
 describes the Brain's contract, not any agent's internal behavior.
+
+Conversely: do not implement Codex-specific (or any client-specific) Brain
+logic anywhere in your own integration — the protocol above applies
+identically regardless of which agent is connected. A client-specific
+instruction belongs in that client's own instruction file (`AGENTS.md`,
+`CLAUDE.md`), not here.

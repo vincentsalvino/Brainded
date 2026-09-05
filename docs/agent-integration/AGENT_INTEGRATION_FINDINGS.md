@@ -21,8 +21,8 @@ were read in full:
   `taskId`, `contextId`, `useful`, `reason`, `notes`. No actor field.
 
 All four are Zod `.strict()` — an extra field sent by a future client-aware
-caller would be silently *rejected*, not silently accepted, so there's no
-partial/undocumented support hiding here either.
+caller would be rejected with a thrown `ZodError`, not silently accepted, so
+there's no partial/undocumented support hiding here either.
 
 The **one** precedent for this kind of field in the same file is a different,
 unrelated event type: `MemoryMutationEventSchema` (lines 169-179) carries
@@ -50,15 +50,22 @@ backwards-compatible end-to-end without also:
    `IF NOT EXISTS` for `ALTER TABLE ADD COLUMN`").
 2. `EventStore` read/write path changes in `packages/storage` for both event
    types.
-3. The `brain_feedback`/`brain_record_outcome` MCP tool input schemas
-   (`packages/mcp/src/server.ts`) accepting an optional `actor` argument.
-4. A decision about what value each client actually sends — a client-supplied
+3. A decision about what value each client actually sends — a client-supplied
    free-text string (`"claude-code"`, `"codex"`) is the minimum viable shape;
    anything more structured (versioned client IDs, session correlation) is
    its own design question, out of scope for "add a field."
 
-That is four coordinated changes across three packages, not one optional
-field — squarely "expanding scope materially" per this milestone's explicit
+The `brain_feedback`/`brain_record_outcome` MCP tool input schemas
+(`packages/mcp/src/schemas.ts`) need no separate change: `feedbackShape` and
+`recordOutcomeShape` are already derived directly from `FeedbackEventSchema`
+and `OutcomeEventSchema` via `.omit({ id: true, timestamp: true }).shape`, so
+an `actor` field added to those event schemas propagates to the MCP tool
+surface automatically.
+
+That is three coordinated changes across two packages (the schema change
+itself in `packages/core/contracts`, plus the DB migration and `EventStore`
+work in `packages/storage`), plus a client-value design decision — still
+squarely "expanding scope materially" per this milestone's explicit
 instruction not to. Deferred.
 
 ## Next task recommendation
