@@ -87,16 +87,26 @@ test("concurrency: two independent processes writing to the same DB file concurr
     // rejection (process crash, malformed response) is not.
     assert.equal(rejected.length, 0, `expected zero transport-level rejections, got ${rejected.length}: ${JSON.stringify(rejected.map((r) => (r as PromiseRejectedResult).reason?.message))}`);
 
+    // Collect both queries before asserting on either -- db.close() must run
+    // even if integrity_check comes back corrupt, otherwise the open readonly
+    // handle can make the outer `finally`'s directory removal fail on
+    // Windows and mask the real AssertionError with a filesystem error.
+    const db = openDatabase(dbPath, { readonly: true });
+    let integrity: { integrity_check: string }[];
+    let storedCount: number;
+    try {
+      integrity = db.raw.pragma("integrity_check") as { integrity_check: string }[];
+      storedCount = (db.raw.prepare(`SELECT COUNT(*) as c FROM memories`).get() as { c: number }).c;
+    } finally {
+      db.close();
+    }
+
     // Hard requirement: the database itself is never corrupted, regardless of
     // how many individual writes succeeded.
-    const db = openDatabase(dbPath, { readonly: true });
-    const integrity = db.raw.pragma("integrity_check") as { integrity_check: string }[];
     assert.deepEqual(integrity, [{ integrity_check: "ok" }]);
 
     // Hard requirement: every call that reported success actually landed —
     // no silent data loss behind a false-positive success response.
-    const storedCount = (db.raw.prepare(`SELECT COUNT(*) as c FROM memories`).get() as { c: number }).c;
-    db.close();
     assert.equal(storedCount, succeeded.length, "every call reporting success must have a durable row -- no false positives");
 
     // Characterization, not a pass/fail gate either way: report what happened.
