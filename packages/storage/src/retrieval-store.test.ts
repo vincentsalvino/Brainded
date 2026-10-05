@@ -103,7 +103,8 @@ runRetrievalStoreConformance({
     const embeddings = new FakeEmbeddingProvider();
     const repo = new SqliteMemoryRepository(db.raw, embeddings);
     for (const seed of seeds) {
-      await repo.create({ type: "fact", content: seed.content, scope: seed.scope });
+      const record = await repo.create({ type: "fact", content: seed.content, scope: seed.scope });
+      if (seed.status === "archived") await repo.archive(record.id, seed.scope);
     }
     const store = new SqliteRetrievalStore(db.raw, embeddings, db.vectorSearchAvailable);
     return { store, cleanup: () => db.close() };

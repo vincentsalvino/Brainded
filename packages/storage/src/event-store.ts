@@ -447,4 +447,104 @@ export class SqliteEventStore implements EventStore {
         .all(memoryId) as MutationRow[]
     ).map(mutationFromRow);
   }
+
+  // --- Observability reads (packages/visualizer) --------------------------
+
+  async getEventCounts(): Promise<{
+    contextEvents: number;
+    feedbackEvents: number;
+    outcomeEvents: number;
+    retrievalEvents: number;
+  }> {
+    const count = (table: string): number =>
+      (this.db.prepare(`SELECT COUNT(*) as n FROM ${table}`).get() as { n: number }).n;
+    return {
+      contextEvents: count("context_events"),
+      feedbackEvents: count("feedback_events"),
+      outcomeEvents: count("outcome_events"),
+      retrievalEvents: count("retrieval_events"),
+    };
+  }
+
+  async listRecentContextEvents(limit: number): Promise<ContextEvent[]> {
+    const rows = this.db
+      .prepare(`SELECT * FROM context_events ORDER BY timestamp DESC LIMIT ?`)
+      .all(limit) as ContextRow[];
+    return this.hydrateContexts(rows);
+  }
+
+  async listRecentFeedbackEvents(limit: number): Promise<FeedbackEvent[]> {
+    return (
+      this.db.prepare(`SELECT * FROM feedback_events ORDER BY timestamp DESC LIMIT ?`).all(limit) as FeedbackRow[]
+    ).map(feedbackFromRow);
+  }
+
+  async listRecentOutcomeEvents(limit: number): Promise<OutcomeEvent[]> {
+    return (
+      this.db.prepare(`SELECT * FROM outcome_events ORDER BY timestamp DESC LIMIT ?`).all(limit) as OutcomeRow[]
+    ).map(outcomeFromRow);
+  }
+
+  async listRecentMutationEvents(limit: number): Promise<MemoryMutationEvent[]> {
+    return (
+      this.db
+        .prepare(`SELECT * FROM memory_mutation_events ORDER BY timestamp DESC LIMIT ?`)
+        .all(limit) as MutationRow[]
+    ).map(mutationFromRow);
+  }
+
+  /** taskId is nullable and one task can have multiple deliveries -- contextId is the exact key. */
+  async getFeedbackForContext(contextId: string): Promise<FeedbackEvent[]> {
+    return (
+      this.db
+        .prepare(`SELECT * FROM feedback_events WHERE context_id = ? ORDER BY timestamp ASC`)
+        .all(contextId) as FeedbackRow[]
+    ).map(feedbackFromRow);
+  }
+
+  /** Same contextId-exactness reasoning as getFeedbackForContext. */
+  async getOutcomesForContext(contextId: string): Promise<OutcomeEvent[]> {
+    return (
+      this.db
+        .prepare(`SELECT * FROM outcome_events WHERE context_id = ? ORDER BY timestamp ASC`)
+        .all(contextId) as OutcomeRow[]
+    ).map(outcomeFromRow);
+  }
+
+  async countDeliveriesForMemory(memoryId: string): Promise<number> {
+    const row = this.db
+      .prepare(`SELECT COUNT(*) as n FROM context_event_memories WHERE memory_id = ? AND included = 1`)
+      .get(memoryId) as { n: number };
+    return row.n;
+  }
+
+  /** See EventStore.getWorkflowAdherence's doc comment for the coverage semantics and its limits. */
+  async getWorkflowAdherence(): Promise<{
+    tasksTracked: number;
+    tasksWithContext: number;
+    tasksWithFeedback: number;
+    tasksWithOutcome: number;
+  }> {
+    const row = this.db
+      .prepare(
+        `WITH tracked_tasks AS (
+           SELECT task_id FROM context_events WHERE task_id IS NOT NULL
+           UNION
+           SELECT task_id FROM outcome_events WHERE task_id IS NOT NULL
+         )
+         SELECT
+           COUNT(*) AS tasksTracked,
+           COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM context_events c WHERE c.task_id = tracked_tasks.task_id) THEN 1 ELSE 0 END), 0) AS tasksWithContext,
+           COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM feedback_events f WHERE f.task_id = tracked_tasks.task_id) THEN 1 ELSE 0 END), 0) AS tasksWithFeedback,
+           COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM outcome_events o WHERE o.task_id = tracked_tasks.task_id) THEN 1 ELSE 0 END), 0) AS tasksWithOutcome
+         FROM tracked_tasks`,
+      )
+      .get() as {
+      tasksTracked: number;
+      tasksWithContext: number;
+      tasksWithFeedback: number;
+      tasksWithOutcome: number;
+    };
+    return row;
+  }
 }

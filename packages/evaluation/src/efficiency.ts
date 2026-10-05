@@ -6,7 +6,7 @@
  * live pipeline run is the one source currently wired up; exportFromEvents
  * (Task 7) does not yet carry per-item token counts onto
  * EvalExample/EvalMemory, so it cannot feed this function today -- see
- * docs/PHASE_2C_FINDINGS.md RISKS.
+ * docs/phase-2c/PHASE_2C_FINDINGS.md RISKS.
  *
  * "redundant" is its own label, never folded into "not_useful": a memory
  * flagged redundant is not evidence it is wrong (PHASE_2C_SPEC.md 2C-002),

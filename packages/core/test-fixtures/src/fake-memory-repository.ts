@@ -8,6 +8,8 @@ import {
   type MemoryResult,
   type ScopeRef,
   type EventStore,
+  type MemoryType,
+  MEMORY_TYPES,
   MemoryCreateInputSchema,
   MemoryUpdateInputSchema,
   scopeIncludes,
@@ -110,5 +112,32 @@ export class FakeMemoryRepository implements MemoryRepository {
   async purge(id: string, scope: ScopeRef): Promise<void> {
     const existing = await this.get(id, scope);
     if (existing) this.records.delete(id);
+  }
+
+  /** Deliberately unscoped -- see countAllMemories' doc comment on MemoryRepository (@brain/contracts). */
+  async countAllMemories(): Promise<{ total: number; active: number; archived: number; byType: Record<MemoryType, number> }> {
+    const byType = Object.fromEntries(MEMORY_TYPES.map((t): [MemoryType, number] => [t, 0])) as Record<MemoryType, number>;
+    let active = 0;
+    let archived = 0;
+    for (const record of this.records.values()) {
+      byType[record.type]++;
+      if (record.status === "active") active++;
+      else archived++;
+    }
+    return { total: active + archived, active, archived, byType };
+  }
+
+  async listAllMemories(options?: { scope?: ScopeRef; limit?: number }): Promise<MemoryRecord[]> {
+    const limit = options?.limit ?? 500;
+    const matches = [...this.records.values()].filter((record) => {
+      if (record.status !== "active") return false;
+      if (options?.scope && !scopeIncludes(record.scope, options.scope)) return false;
+      return true;
+    });
+    return matches.slice(0, limit);
+  }
+
+  async getMemoryById(id: string): Promise<MemoryRecord | null> {
+    return this.records.get(id) ?? null;
   }
 }

@@ -482,3 +482,291 @@ test("atomicity: if the memory_performance update fails, the raw outcome_events 
   );
   db.close();
 });
+
+// --- Observability reads (packages/visualizer) ------------------------------
+
+function tick(ms = 2): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+test("getEventCounts reflects the row count of each of the four event tables", async () => {
+  const { db, events, retrieval, includedId } = await contextFixture();
+  const ctx = await events.recordContext({
+    retrievalEventId: retrieval.id,
+    scope: globalScope(),
+    taskId: "task-junction",
+    includedMemoryIds: [includedId],
+    omittedMemoryIds: [],
+    tokenCount: 1,
+    memories: [{ memoryId: includedId, included: true, rank: 1, tokenCount: 1 }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+    ...NO_TIMINGS,
+  });
+  await events.recordFeedback({ memoryId: includedId, taskId: "task-junction", contextId: ctx.id, useful: true, reason: null, notes: null });
+  await events.recordOutcome({ taskId: "task-junction", sessionId: null, contextId: ctx.id, outcome: "success", signal: null, notes: null });
+
+  const counts = await events.getEventCounts();
+  assert.equal(counts.contextEvents, 1);
+  assert.equal(counts.feedbackEvents, 1);
+  assert.equal(counts.outcomeEvents, 1);
+  assert.equal(counts.retrievalEvents, 1);
+  db.close();
+});
+
+test("listRecentContextEvents: newest first, respects limit", async () => {
+  const db = openDatabase(":memory:");
+  const events = new SqliteEventStore(db.raw);
+  const ids: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const retrieval = await events.recordRetrieval({ scope: globalScope(), queryText: `q${i}`, candidateIds: [], taskId: null });
+    const ctx = await events.recordContext({
+      retrievalEventId: retrieval.id,
+      scope: globalScope(),
+      taskId: null,
+      includedMemoryIds: [],
+      omittedMemoryIds: [],
+      tokenCount: i,
+      memories: [],
+      candidateCount: null,
+      candidateTokenCount: null,
+      ...NO_TIMINGS,
+    });
+    ids.push(ctx.id);
+    await tick();
+  }
+
+  assert.deepEqual((await events.listRecentContextEvents(10)).map((c) => c.id), [...ids].reverse());
+  assert.deepEqual((await events.listRecentContextEvents(2)).map((c) => c.id), [ids[2], ids[1]]);
+  db.close();
+});
+
+test("listRecentFeedbackEvents: newest first, respects limit", async () => {
+  const { db, events, includedId } = await contextFixture();
+  const ids: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const fb = await events.recordFeedback({ memoryId: includedId, taskId: null, contextId: null, useful: true, reason: null, notes: `note-${i}` });
+    ids.push(fb.id);
+    await tick();
+  }
+  assert.deepEqual((await events.listRecentFeedbackEvents(10)).map((f) => f.id), [...ids].reverse());
+  assert.equal((await events.listRecentFeedbackEvents(1))[0]?.id, ids[2]);
+  db.close();
+});
+
+test("listRecentOutcomeEvents: newest first, respects limit", async () => {
+  const db = openDatabase(":memory:");
+  const events = new SqliteEventStore(db.raw);
+  const ids: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const outcome = await events.recordOutcome({ taskId: `task-${i}`, sessionId: null, contextId: null, outcome: "success", signal: null, notes: null });
+    ids.push(outcome.id);
+    await tick();
+  }
+  assert.deepEqual((await events.listRecentOutcomeEvents(10)).map((o) => o.id), [...ids].reverse());
+  assert.equal((await events.listRecentOutcomeEvents(1))[0]?.id, ids[2]);
+  db.close();
+});
+
+test("listRecentMutationEvents: newest first, respects limit, across different memories", async () => {
+  const db = openDatabase(":memory:");
+  const events = new SqliteEventStore(db.raw);
+  const repo = new SqliteMemoryRepository(db.raw, new FakeEmbeddingProvider());
+  const first = await repo.create({ type: "fact", content: "one", scope: globalScope() });
+  await tick();
+  const second = await repo.create({ type: "fact", content: "two", scope: globalScope() });
+  await tick();
+  await repo.update({ id: first.id, content: "one, updated" }, globalScope());
+
+  const recent = await events.listRecentMutationEvents(10);
+  assert.deepEqual(recent.map((m) => m.memoryId), [first.id, second.id, first.id]);
+  assert.deepEqual(recent.map((m) => m.mutationType), ["update", "create", "create"]);
+
+  const limited = await events.listRecentMutationEvents(1);
+  assert.equal(limited.length, 1);
+  assert.equal(limited[0]?.mutationType, "update");
+  db.close();
+});
+
+test("getFeedbackForContext / getOutcomesForContext: isolate by exact contextId, not taskId -- two deliveries sharing one taskId don't leak into each other", async () => {
+  const db = openDatabase(":memory:");
+  const events = new SqliteEventStore(db.raw);
+  const repo = new SqliteMemoryRepository(db.raw, new FakeEmbeddingProvider());
+  const memory = await repo.create({ type: "fact", content: "shared", scope: globalScope() });
+
+  const retrieval = await events.recordRetrieval({ scope: globalScope(), queryText: "q", candidateIds: [memory.id], taskId: "shared-task" });
+  const ctxA = await events.recordContext({
+    retrievalEventId: retrieval.id,
+    scope: globalScope(),
+    taskId: "shared-task",
+    includedMemoryIds: [memory.id],
+    omittedMemoryIds: [],
+    tokenCount: 1,
+    memories: [{ memoryId: memory.id, included: true, rank: 1, tokenCount: 1 }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+    ...NO_TIMINGS,
+  });
+  const ctxB = await events.recordContext({
+    retrievalEventId: retrieval.id,
+    scope: globalScope(),
+    taskId: "shared-task",
+    includedMemoryIds: [memory.id],
+    omittedMemoryIds: [],
+    tokenCount: 1,
+    memories: [{ memoryId: memory.id, included: true, rank: 1, tokenCount: 1 }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+    ...NO_TIMINGS,
+  });
+
+  await events.recordFeedback({ memoryId: memory.id, taskId: "shared-task", contextId: ctxA.id, useful: true, reason: null, notes: "for A only" });
+  await events.recordOutcome({ taskId: "shared-task", sessionId: null, contextId: ctxA.id, outcome: "success", signal: null, notes: null });
+
+  assert.equal((await events.getFeedbackForContext(ctxA.id)).length, 1);
+  assert.equal((await events.getFeedbackForContext(ctxB.id)).length, 0);
+  assert.equal((await events.getOutcomesForContext(ctxA.id)).length, 1);
+  assert.equal((await events.getOutcomesForContext(ctxB.id)).length, 0);
+  db.close();
+});
+
+test("getFeedbackForContext / getOutcomesForContext: a context delivered with taskId=null still resolves its own feedback/outcome", async () => {
+  const db = openDatabase(":memory:");
+  const events = new SqliteEventStore(db.raw);
+  const repo = new SqliteMemoryRepository(db.raw, new FakeEmbeddingProvider());
+  const memory = await repo.create({ type: "fact", content: "no task", scope: globalScope() });
+
+  const retrieval = await events.recordRetrieval({ scope: globalScope(), queryText: "q", candidateIds: [memory.id], taskId: null });
+  const ctx = await events.recordContext({
+    retrievalEventId: retrieval.id,
+    scope: globalScope(),
+    taskId: null,
+    includedMemoryIds: [memory.id],
+    omittedMemoryIds: [],
+    tokenCount: 1,
+    memories: [{ memoryId: memory.id, included: true, rank: 1, tokenCount: 1 }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+    ...NO_TIMINGS,
+  });
+  await events.recordFeedback({ memoryId: memory.id, taskId: null, contextId: ctx.id, useful: true, reason: null, notes: null });
+  await events.recordOutcome({ taskId: "orphan-task", sessionId: null, contextId: ctx.id, outcome: "success", signal: null, notes: null });
+
+  assert.equal((await events.getFeedbackForContext(ctx.id)).length, 1);
+  assert.equal((await events.getOutcomesForContext(ctx.id)).length, 1);
+  db.close();
+});
+
+test("countDeliveriesForMemory: counts only deliveries where the memory was actually included", async () => {
+  const db = openDatabase(":memory:");
+  const events = new SqliteEventStore(db.raw);
+  const repo = new SqliteMemoryRepository(db.raw, new FakeEmbeddingProvider());
+  const memory = await repo.create({ type: "fact", content: "delivered sometimes", scope: globalScope() });
+  const other = await repo.create({ type: "fact", content: "other", scope: globalScope() });
+
+  const retrieval = await events.recordRetrieval({ scope: globalScope(), queryText: "q", candidateIds: [memory.id, other.id], taskId: null });
+  const baseContext = {
+    retrievalEventId: retrieval.id,
+    scope: globalScope(),
+    taskId: null,
+    ...NO_TIMINGS,
+  };
+  // included
+  await events.recordContext({
+    ...baseContext,
+    includedMemoryIds: [memory.id],
+    omittedMemoryIds: [],
+    tokenCount: 1,
+    memories: [{ memoryId: memory.id, included: true, rank: 1, tokenCount: 1 }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+  });
+  // included again
+  await events.recordContext({
+    ...baseContext,
+    includedMemoryIds: [memory.id],
+    omittedMemoryIds: [],
+    tokenCount: 1,
+    memories: [{ memoryId: memory.id, included: true, rank: 1, tokenCount: 1 }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+  });
+  // omitted -- must not count
+  await events.recordContext({
+    ...baseContext,
+    includedMemoryIds: [other.id],
+    omittedMemoryIds: [memory.id],
+    tokenCount: 1,
+    memories: [
+      { memoryId: other.id, included: true, rank: 1, tokenCount: 1 },
+      { memoryId: memory.id, included: false, rank: null, tokenCount: null },
+    ],
+    candidateCount: 2,
+    candidateTokenCount: 2,
+  });
+
+  assert.equal(await events.countDeliveriesForMemory(memory.id), 2);
+  assert.equal(await events.countDeliveriesForMemory(other.id), 1);
+  db.close();
+});
+
+test("getWorkflowAdherence: counts tasks by pipeline stage reached, including an outcome with no matching preflight", async () => {
+  const db = openDatabase(":memory:");
+  const events = new SqliteEventStore(db.raw);
+  const repo = new SqliteMemoryRepository(db.raw, new FakeEmbeddingProvider());
+  const memory = await repo.create({ type: "fact", content: "fixture", scope: globalScope() });
+
+  // task-a: context, feedback, and outcome -- full adherence.
+  const retrievalA = await events.recordRetrieval({ scope: globalScope(), queryText: "q", candidateIds: [memory.id], taskId: "task-a" });
+  await events.recordContext({
+    retrievalEventId: retrievalA.id,
+    scope: globalScope(),
+    taskId: "task-a",
+    includedMemoryIds: [memory.id],
+    omittedMemoryIds: [],
+    tokenCount: 1,
+    memories: [{ memoryId: memory.id, included: true, rank: 1, tokenCount: 1 }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+    ...NO_TIMINGS,
+  });
+  await events.recordFeedback({ memoryId: memory.id, taskId: "task-a", contextId: null, useful: true, reason: null, notes: null });
+  await events.recordOutcome({ taskId: "task-a", sessionId: null, contextId: null, outcome: "success", signal: null, notes: null });
+
+  // task-b: context only -- preflight ran, no feedback or outcome recorded yet.
+  const retrievalB = await events.recordRetrieval({ scope: globalScope(), queryText: "q", candidateIds: [memory.id], taskId: "task-b" });
+  await events.recordContext({
+    retrievalEventId: retrievalB.id,
+    scope: globalScope(),
+    taskId: "task-b",
+    includedMemoryIds: [],
+    omittedMemoryIds: [memory.id],
+    tokenCount: 0,
+    memories: [{ memoryId: memory.id, included: false, rank: null, tokenCount: null }],
+    candidateCount: 1,
+    candidateTokenCount: 1,
+    ...NO_TIMINGS,
+  });
+
+  // task-c: an outcome with no preceding context event -- the missing-preflight case.
+  await events.recordOutcome({ taskId: "task-c", sessionId: null, contextId: null, outcome: "success", signal: null, notes: null });
+
+  const adherence = await events.getWorkflowAdherence();
+  assert.equal(adherence.tasksTracked, 3);
+  assert.equal(adherence.tasksWithContext, 2);
+  assert.equal(adherence.tasksWithFeedback, 1);
+  assert.equal(adherence.tasksWithOutcome, 2);
+  db.close();
+});
+
+test("getWorkflowAdherence: an empty database reports all-zero, not a division error", async () => {
+  const db = openDatabase(":memory:");
+  const events = new SqliteEventStore(db.raw);
+  assert.deepEqual(await events.getWorkflowAdherence(), {
+    tasksTracked: 0,
+    tasksWithContext: 0,
+    tasksWithFeedback: 0,
+    tasksWithOutcome: 0,
+  });
+  db.close();
+});

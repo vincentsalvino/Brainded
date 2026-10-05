@@ -1,12 +1,12 @@
 import { copyFileSync, existsSync } from "node:fs";
 
 /**
- * Phase 4.3C mechanics (docs/PHASE_4_3_REPORT.md "ORGANIC PILOT DESIGN"). Deliberately minimal --
+ * Phase 4.3C mechanics (docs/phase-4/PHASE_4_3_REPORT.md "ORGANIC PILOT DESIGN"). Deliberately minimal --
  * this session did not run a live organic pilot (see the report's own reasoning), so this file
  * intentionally does NOT include a task-execution orchestrator: building one, unused, would be
  * exactly the speculative-infrastructure-for-a-pilot-that-isn't-running the project's own
  * lazy-first discipline argues against. What's here are the three primitives the protocol
- * (docs/PHASE_4_3_REPORT.md's pre-registered A/B design) actually needs, each independently
+ * (docs/phase-4/PHASE_4_3_REPORT.md's pre-registered A/B design) actually needs, each independently
  * correct and testable without running a single real task.
  */
 
@@ -23,7 +23,7 @@ export function snapshotDatabase(sourcePath: string, snapshotPath: string): stri
 export type PilotArm = "learning-off" | "learning-on";
 
 /**
- * Frozen, deterministic, balanced assignment (docs/PHASE_4_3_REPORT.md "LIVE PILOT A/B DESIGN"):
+ * Frozen, deterministic, balanced assignment (docs/phase-4/PHASE_4_3_REPORT.md "LIVE PILOT A/B DESIGN"):
  * odd task number -> OFF, even -> ON. Never based on expected retrieval quality -- taskNumber is
  * the only input, so the assignment is decided before anyone could look at what either arm would
  * produce.
@@ -35,7 +35,7 @@ export function assignArm(taskNumber: number): PilotArm {
   return taskNumber % 2 === 0 ? "learning-on" : "learning-off";
 }
 
-/** Cohort tag for auditability (docs/PHASE_4_3_REPORT.md "PILOT-PROVENANCE ISOLATION") --
+/** Cohort tag for auditability (docs/phase-4/PHASE_4_3_REPORT.md "PILOT-PROVENANCE ISOLATION") --
  *  genuine tasks, tagged for later separation from Phase 2C pilot data and other activity, never
  *  a marker that the task itself is synthetic. */
 export function pilotTaskId(taskNumber: number, slug: string): string {

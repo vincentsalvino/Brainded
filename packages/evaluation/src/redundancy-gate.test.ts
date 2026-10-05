@@ -288,7 +288,7 @@ test("CONSTRAINED BUDGET: the demoted member of the plural-rule pair is omitted 
   }
 });
 
-test("REAL PILOT REGRESSION: project naming rule survives a constrained budget, repository constraint survives, redundant global rule is demoted/omitted (docs/PHASE_2C_PILOT_REPORT.md, 2C.1)", async () => {
+test("REAL PILOT REGRESSION: project naming rule survives a constrained budget, repository constraint survives, redundant global rule is demoted/omitted (docs/phase-2c/PHASE_2C_PILOT_REPORT.md, 2C.1)", async () => {
   // Recreates the real Phase 2C pilot fixture verbatim (same task text, same
   // three memory contents). In the real pilot, the global duplicate outranked
   // the project rule on raw relevance and rank-only orientation demoted the
@@ -351,7 +351,7 @@ test("REAL PILOT REGRESSION: project naming rule survives a constrained budget, 
  *      the CONSTRAINED BUDGET test above).
  *
  * This test instead reports both budgets' real numbers (captured for
- * docs/PHASE_2C_FINDINGS.md, Task 9) and asserts only what is actually
+ * docs/phase-2c/PHASE_2C_FINDINGS.md, Task 9) and asserts only what is actually
  * guaranteed: the metrics are well-formed and the hand-labeled seed dataset
  * yields a near-complete labeledFraction.
  */

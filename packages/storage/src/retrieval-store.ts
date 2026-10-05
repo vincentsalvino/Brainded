@@ -93,7 +93,11 @@ export class SqliteRetrievalStore implements RetrievalStore {
 
   private whereClauses(query: RetrievalQuery): { clause: string; params: unknown[] } {
     const where = scopeWhere(query.scope);
-    const clauses = [where.clause];
+    // Brain Corpus Hygiene V1: candidate generation must honor status the same way
+    // every other read path already does (memory-repository.ts's query/listAllMemories) --
+    // an archived memory is explicitly marked "not eligible" and lexicalSearch/
+    // semanticSearch were the one path that silently ignored that.
+    const clauses = [where.clause, "status = 'active'"];
     const params: unknown[] = [...where.params];
     if (query.filters?.type) {
       clauses.push("type = ?");

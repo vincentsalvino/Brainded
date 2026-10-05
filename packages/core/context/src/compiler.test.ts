@@ -258,7 +258,7 @@ test("redundancy: a pair naming a memoryId dropped by dedup is ignored, not a cr
 });
 
 test("redundancy: the anchor (a) may rank WORSE than the demoted item (b) -- the mark must still apply", () => {
-  // Before 2C.1 (docs/PHASE_2C_PILOT_REPORT.md), toRedundancyPairs always
+  // Before 2C.1 (docs/phase-2c/PHASE_2C_PILOT_REPORT.md), toRedundancyPairs always
   // oriented `a` to the better (lower) rank, so `a` was always visited before
   // `b` in rankedResults order. 2C.1 lets a more scope-specific memory anchor
   // a better-ranked, less specific one -- so `a` can now appear AFTER `b` in

@@ -75,6 +75,147 @@ test("FakeMemoryRepository: query never returns another scope's rows (adversaria
   assert.equal(resultA.items[0]?.scope.id, "project-a");
 });
 
+test("FakeMemoryRepository: countAllMemories aggregates across every scope, unscoped, including archived", async () => {
+  const repo = new FakeMemoryRepository(new FakeEventStore());
+  await repo.create({ type: "fact", content: "g1", scope: globalScope() });
+  await repo.create({ type: "rule", content: "p1", scope: projectScope("project-a") });
+  const toArchive = await repo.create({ type: "fact", content: "will archive", scope: projectScope("project-b") });
+  await repo.archive(toArchive.id, projectScope("project-b"));
+
+  const counts = await repo.countAllMemories();
+  assert.equal(counts.total, 3);
+  assert.equal(counts.active, 2);
+  assert.equal(counts.archived, 1);
+  assert.equal(counts.byType.fact, 2);
+  assert.equal(counts.byType.rule, 1);
+  assert.equal(counts.byType.decision, 0);
+});
+
+function tick(ms = 2): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+test("FakeEventStore: getEventCounts reflects each array's length", async () => {
+  const store = new FakeEventStore();
+  await store.recordRetrieval({ scope: globalScope(), queryText: "q", candidateIds: [], taskId: null });
+  await store.recordContext({
+    retrievalEventId: "r1",
+    scope: globalScope(),
+    taskId: null,
+    includedMemoryIds: [],
+    omittedMemoryIds: [],
+    tokenCount: 0,
+    memories: [],
+    candidateCount: null,
+    candidateTokenCount: null,
+    retrievalMs: null,
+    rankingMs: null,
+    compileMs: null,
+    optimizeMs: null,
+  });
+  await store.recordFeedback({ memoryId: "m1", taskId: null, contextId: null, useful: true, reason: null, notes: null });
+  await store.recordOutcome({ taskId: "t1", sessionId: null, contextId: null, outcome: "success", signal: null, notes: null });
+
+  assert.deepEqual(await store.getEventCounts(), { contextEvents: 1, feedbackEvents: 1, outcomeEvents: 1, retrievalEvents: 1 });
+});
+
+test("FakeEventStore: getWorkflowAdherence counts tasks by pipeline stage reached, including an outcome with no matching context", async () => {
+  const store = new FakeEventStore();
+  const baseContext = {
+    retrievalEventId: "r1",
+    scope: globalScope(),
+    includedMemoryIds: [],
+    omittedMemoryIds: [],
+    tokenCount: 0,
+    memories: [],
+    candidateCount: null,
+    candidateTokenCount: null,
+    retrievalMs: null,
+    rankingMs: null,
+    compileMs: null,
+    optimizeMs: null,
+  };
+  // task-a: context, feedback, and outcome.
+  await store.recordContext({ ...baseContext, taskId: "task-a" });
+  await store.recordFeedback({ memoryId: "m1", taskId: "task-a", contextId: null, useful: true, reason: null, notes: null });
+  await store.recordOutcome({ taskId: "task-a", sessionId: null, contextId: null, outcome: "success", signal: null, notes: null });
+  // task-b: context only.
+  await store.recordContext({ ...baseContext, taskId: "task-b" });
+  // task-c: outcome with no preceding context -- the missing-preflight case.
+  await store.recordOutcome({ taskId: "task-c", sessionId: null, contextId: null, outcome: "success", signal: null, notes: null });
+
+  assert.deepEqual(await store.getWorkflowAdherence(), {
+    tasksTracked: 3,
+    tasksWithContext: 2,
+    tasksWithFeedback: 1,
+    tasksWithOutcome: 2,
+  });
+});
+
+test("FakeEventStore: getWorkflowAdherence reports all-zero on an empty store", async () => {
+  const store = new FakeEventStore();
+  assert.deepEqual(await store.getWorkflowAdherence(), {
+    tasksTracked: 0,
+    tasksWithContext: 0,
+    tasksWithFeedback: 0,
+    tasksWithOutcome: 0,
+  });
+});
+
+test("FakeEventStore: listRecent* return newest first and respect limit", async () => {
+  const store = new FakeEventStore();
+  const ids: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const fb = await store.recordFeedback({ memoryId: "m1", taskId: null, contextId: null, useful: true, reason: null, notes: `n${i}` });
+    ids.push(fb.id);
+    await tick();
+  }
+  assert.deepEqual((await store.listRecentFeedbackEvents(10)).map((f) => f.id), [...ids].reverse());
+  assert.equal((await store.listRecentFeedbackEvents(1))[0]?.id, ids[2]);
+});
+
+test("FakeEventStore: getFeedbackForContext / getOutcomesForContext isolate by contextId", async () => {
+  const store = new FakeEventStore();
+  await store.recordFeedback({ memoryId: "m1", taskId: "shared", contextId: "ctx-a", useful: true, reason: null, notes: null });
+  await store.recordFeedback({ memoryId: "m1", taskId: "shared", contextId: "ctx-b", useful: false, reason: "irrelevant", notes: null });
+  await store.recordOutcome({ taskId: "shared", sessionId: null, contextId: "ctx-a", outcome: "success", signal: null, notes: null });
+
+  assert.equal((await store.getFeedbackForContext("ctx-a")).length, 1);
+  assert.equal((await store.getFeedbackForContext("ctx-b")).length, 1);
+  assert.equal((await store.getOutcomesForContext("ctx-a")).length, 1);
+  assert.equal((await store.getOutcomesForContext("ctx-b")).length, 0);
+});
+
+test("FakeEventStore: countDeliveriesForMemory counts only included deliveries", async () => {
+  const store = new FakeEventStore();
+  const base = { retrievalEventId: "r1", scope: globalScope(), taskId: null, candidateCount: null, candidateTokenCount: null, retrievalMs: null, rankingMs: null, compileMs: null, optimizeMs: null };
+  await store.recordContext({ ...base, includedMemoryIds: ["m1"], omittedMemoryIds: [], tokenCount: 1, memories: [{ memoryId: "m1", included: true, rank: 1, tokenCount: 1 }] });
+  await store.recordContext({ ...base, includedMemoryIds: [], omittedMemoryIds: ["m1"], tokenCount: 0, memories: [{ memoryId: "m1", included: false, rank: null, tokenCount: null }] });
+
+  assert.equal(await store.countDeliveriesForMemory("m1"), 1);
+});
+
+test("FakeMemoryRepository: listAllMemories excludes archived and respects an optional scope filter", async () => {
+  const repo = new FakeMemoryRepository(new FakeEventStore());
+  await repo.create({ type: "fact", content: "global", scope: globalScope() });
+  const archived = await repo.create({ type: "fact", content: "archived", scope: globalScope() });
+  await repo.archive(archived.id, globalScope());
+  await repo.create({ type: "fact", content: "project-a", scope: projectScope("project-a") });
+
+  const all = await repo.listAllMemories();
+  assert.equal(all.length, 2);
+
+  const forA = await repo.listAllMemories({ scope: projectScope("project-a") });
+  assert.equal(forA.length, 2); // global + project-a's own
+});
+
+test("FakeMemoryRepository: getMemoryById finds regardless of scope; null for unknown", async () => {
+  const repo = new FakeMemoryRepository(new FakeEventStore());
+  const record = await repo.create({ type: "fact", content: "x", scope: projectScope("project-a") });
+  assert.equal((await repo.getMemoryById(record.id))?.id, record.id);
+  assert.equal(await repo.getMemoryById("nope"), null);
+});
+
 test("FakeRetrievalStore: lexicalSearch respects scope and returns overlap-scored candidates", async () => {
   const store = new FakeRetrievalStore([
     buildMemoryRecord({ content: "use conventional commits for this repository", scope: globalScope() }),
@@ -154,7 +295,7 @@ runRetrievalStoreConformance({
   name: "FakeRetrievalStore",
   async setup(seeds) {
     const store = new FakeRetrievalStore(
-      seeds.map((seed) => buildMemoryRecord({ content: seed.content, scope: seed.scope })),
+      seeds.map((seed) => buildMemoryRecord({ content: seed.content, scope: seed.scope, status: seed.status ?? "active" })),
     );
     return { store, cleanup: () => {} };
   },

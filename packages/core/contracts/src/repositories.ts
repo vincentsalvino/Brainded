@@ -1,4 +1,4 @@
-import type { MemoryRecord, MemoryCreateInput, MemoryUpdateInput, MemoryQuery, MemoryResult } from "./memory.js";
+import type { MemoryRecord, MemoryCreateInput, MemoryUpdateInput, MemoryQuery, MemoryResult, MemoryType } from "./memory.js";
 import type { ScopeRef } from "./scope.js";
 import type { RetrievalQuery, Candidate } from "./retrieval.js";
 import type { SimilarityPair } from "./signals.js";
@@ -32,6 +32,33 @@ export interface MemoryRepository {
   query(query: MemoryQuery): Promise<MemoryResult>;
   /** Hard delete. Interface-only in Phase 1 -- not exposed via any brain_* operation. */
   purge(id: string, scope: ScopeRef): Promise<void>;
+  /**
+   * Deliberately UNSCOPED -- reads across every scope at once, with no ScopeRef
+   * parameter to misuse (its absence is the safety mechanism, not an
+   * optional/ignorable one). Exists only for packages/visualizer's global
+   * Overview, which has no project/session selector in V0.1 by product
+   * decision. Returns aggregate counts only, never record content. Every other
+   * method here enforces scope in SQL -- see scopeWhere's doc comment in
+   * memory-repository.ts for why that rule exists. See also listAllMemories/
+   * getMemoryById below, the same exception for full records.
+   */
+  countAllMemories(): Promise<{ total: number; active: number; archived: number; byType: Record<MemoryType, number> }>;
+  /**
+   * Every active memory (status='active' only -- archived memories are not
+   * graph nodes), optionally scope-filtered via the same scopeWhere logic
+   * every other method uses. Scope omitted -> every scope at once, same
+   * deliberate exception as countAllMemories -- packages/visualizer's global
+   * memory graph has no scope selector in V0.1. `limit` defaults to
+   * MemoryQuerySchema's existing max (500): reusing an existing ceiling rather
+   * than inventing a new one.
+   */
+  listAllMemories(options?: { scope?: ScopeRef; limit?: number }): Promise<MemoryRecord[]>;
+  /**
+   * Unscoped equivalent of get(id, scope) -- needed because a click on the
+   * unscoped global graph has no caller-scope to enforce against. No status
+   * filter, mirroring get()'s own unfiltered-by-status behavior.
+   */
+  getMemoryById(id: string): Promise<MemoryRecord | null>;
 }
 
 export interface RetrievalStore {
@@ -71,6 +98,55 @@ export interface EventStore {
   /** Additive code/dependency delivery telemetry -- see events.ts's ContextEventSource. */
   recordContextSources(contextEventId: string, sources: ContextEventSource[]): Promise<void>;
   getContextEventSources(contextEventId: string): Promise<ContextEventSource[]>;
+
+  // --- Observability reads (packages/visualizer) --------------------------
+  // Unfiltered/aggregate reads for a dashboard, not task/memory correlation --
+  // deliberately separate from the lookup methods above.
+
+  /** Row counts across the four event tables. */
+  getEventCounts(): Promise<{
+    contextEvents: number;
+    feedbackEvents: number;
+    outcomeEvents: number;
+    retrievalEvents: number;
+  }>;
+  /**
+   * Newest first. Every ContextEvent already has exactly one paired
+   * RetrievalEvent, so this -- not a listRecentRetrievalEvents -- is what an
+   * activity feed shows; listing both would double every delivery.
+   */
+  listRecentContextEvents(limit: number): Promise<ContextEvent[]>;
+  /** Newest first. */
+  listRecentFeedbackEvents(limit: number): Promise<FeedbackEvent[]>;
+  /** Newest first. */
+  listRecentOutcomeEvents(limit: number): Promise<OutcomeEvent[]>;
+  /** Newest first -- unlike getMutationsForMemory (oldest first, a per-memory audit trail). */
+  listRecentMutationEvents(limit: number): Promise<MemoryMutationEvent[]>;
+  /**
+   * Feedback recorded against this exact contextId -- NOT taskId. taskId is
+   * nullable, and one task can have multiple context deliveries, so filtering by
+   * taskId here would either miss a context (no taskId) or leak a sibling
+   * delivery's feedback into the wrong context's detail view.
+   */
+  getFeedbackForContext(contextId: string): Promise<FeedbackEvent[]>;
+  /** Same contextId-exactness reasoning as getFeedbackForContext. An array: nothing enforces one outcome per context. */
+  getOutcomesForContext(contextId: string): Promise<OutcomeEvent[]>;
+  /** Count of context deliveries that actually included this memory (context_event_memories.included = 1). */
+  countDeliveriesForMemory(memoryId: string): Promise<number>;
+  /**
+   * Agent Workflow Integration V1 (docs/agent-integration/BRAIN_WORKFLOW_POLICY.md).
+   * Coverage over tasks that left at least one trace -- a taskId on a context or
+   * outcome event. Cannot see a task that skipped brain_context entirely: that
+   * task mints no taskId anywhere, so it leaves nothing to count. Not a
+   * substitute for a true substantive-task denominator, which nothing here
+   * computes.
+   */
+  getWorkflowAdherence(): Promise<{
+    tasksTracked: number;
+    tasksWithContext: number;
+    tasksWithFeedback: number;
+    tasksWithOutcome: number;
+  }>;
 }
 
 /**

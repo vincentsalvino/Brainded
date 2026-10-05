@@ -45,6 +45,7 @@ export class FakeRetrievalStore implements RetrievalStore {
 
   private matching(query: RetrievalQuery): MemoryRecord[] {
     return this.records.filter((record) => {
+      if (record.status !== "active") return false;
       if (!scopeIncludes(record.scope, query.scope)) return false;
       if (query.filters?.type && record.type !== query.filters.type) return false;
       if (query.filters?.domain && record.domain !== query.filters.domain) return false;

@@ -82,4 +82,76 @@ export class FakeEventStore implements EventStore {
   async getContextEventSources(contextEventId: string): Promise<ContextEventSource[]> {
     return this.contextEventSources.filter((s) => s.contextEventId === contextEventId);
   }
+
+  // --- Observability reads (packages/visualizer) --------------------------
+  // Mirrors SqliteEventStore's equivalent methods -- see its doc comments for why
+  // these are shaped the way they are (contextId not taskId, mutations not
+  // retrieval in the recent-list set, etc.).
+
+  async getEventCounts(): Promise<{
+    contextEvents: number;
+    feedbackEvents: number;
+    outcomeEvents: number;
+    retrievalEvents: number;
+  }> {
+    return {
+      contextEvents: this.contextEvents.length,
+      feedbackEvents: this.feedbackEvents.length,
+      outcomeEvents: this.outcomeEvents.length,
+      retrievalEvents: this.retrievalEvents.length,
+    };
+  }
+
+  private static byTimestampDesc<T extends { timestamp: string }>(items: readonly T[]): T[] {
+    return [...items].sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));
+  }
+
+  async listRecentContextEvents(limit: number): Promise<ContextEvent[]> {
+    return FakeEventStore.byTimestampDesc(this.contextEvents).slice(0, limit);
+  }
+
+  async listRecentFeedbackEvents(limit: number): Promise<FeedbackEvent[]> {
+    return FakeEventStore.byTimestampDesc(this.feedbackEvents).slice(0, limit);
+  }
+
+  async listRecentOutcomeEvents(limit: number): Promise<OutcomeEvent[]> {
+    return FakeEventStore.byTimestampDesc(this.outcomeEvents).slice(0, limit);
+  }
+
+  async listRecentMutationEvents(limit: number): Promise<MemoryMutationEvent[]> {
+    return FakeEventStore.byTimestampDesc(this.mutationEvents).slice(0, limit);
+  }
+
+  async getFeedbackForContext(contextId: string): Promise<FeedbackEvent[]> {
+    return this.feedbackEvents.filter((e) => e.contextId === contextId);
+  }
+
+  async getOutcomesForContext(contextId: string): Promise<OutcomeEvent[]> {
+    return this.outcomeEvents.filter((e) => e.contextId === contextId);
+  }
+
+  async countDeliveriesForMemory(memoryId: string): Promise<number> {
+    return this.contextEvents.filter((e) => e.memories.some((m) => m.memoryId === memoryId && m.included)).length;
+  }
+
+  async getWorkflowAdherence(): Promise<{
+    tasksTracked: number;
+    tasksWithContext: number;
+    tasksWithFeedback: number;
+    tasksWithOutcome: number;
+  }> {
+    const taskIds = new Set<string>();
+    for (const e of this.contextEvents) if (e.taskId) taskIds.add(e.taskId);
+    for (const e of this.outcomeEvents) taskIds.add(e.taskId);
+
+    let tasksWithContext = 0;
+    let tasksWithFeedback = 0;
+    let tasksWithOutcome = 0;
+    for (const taskId of taskIds) {
+      if (this.contextEvents.some((e) => e.taskId === taskId)) tasksWithContext++;
+      if (this.feedbackEvents.some((e) => e.taskId === taskId)) tasksWithFeedback++;
+      if (this.outcomeEvents.some((e) => e.taskId === taskId)) tasksWithOutcome++;
+    }
+    return { tasksTracked: taskIds.size, tasksWithContext, tasksWithFeedback, tasksWithOutcome };
+  }
 }

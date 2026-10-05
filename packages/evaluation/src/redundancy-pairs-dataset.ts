@@ -5,7 +5,7 @@ import { z } from "zod";
  * Phase 2C.2. A replayable, manually labeled real-model redundancy benchmark.
  * Deliberately NOT EvalExample/dataset.ts's shape -- that schema is a
  * task+ranked-memories fixture (a different axis entirely, see
- * docs/PHASE_2C_PILOT_REPORT.md's note on A/A'/C' vs A/B/C never being the
+ * docs/phase-2c/PHASE_2C_PILOT_REPORT.md's note on A/A'/C' vs A/B/C never being the
  * same thing). This is a flat list of CONTENT PAIRS with a human-declared
  * label, for measuring cosine similarity against a fixed expectation --
  * nothing here is ever retrieved, ranked, or scoped.

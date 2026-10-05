@@ -122,3 +122,80 @@ test("create writes the memory row and its audit row atomically -- both exist to
   assert.equal((await events.getMutationsForMemory(record.id)).length, 1);
   db.close();
 });
+
+test("countAllMemories: aggregates across every scope, unscoped, including archived", async () => {
+  const { db, repo } = setup();
+  await repo.create({ type: "fact", content: "g1", scope: globalScope() });
+  await repo.create({ type: "rule", content: "p1", scope: projectScope("project-a") });
+  const toArchive = await repo.create({ type: "fact", content: "will archive", scope: projectScope("project-b") });
+  await repo.archive(toArchive.id, projectScope("project-b"));
+
+  const counts = await repo.countAllMemories();
+  assert.equal(counts.total, 3);
+  assert.equal(counts.active, 2);
+  assert.equal(counts.archived, 1);
+  assert.equal(counts.byType.fact, 2);
+  assert.equal(counts.byType.rule, 1);
+  assert.equal(counts.byType.decision, 0);
+  db.close();
+});
+
+test("listAllMemories: unscoped returns every active memory across every scope, excludes archived", async () => {
+  const { db, repo } = setup();
+  await repo.create({ type: "fact", content: "g1", scope: globalScope() });
+  await repo.create({ type: "rule", content: "p1", scope: projectScope("project-a") });
+  const toArchive = await repo.create({ type: "fact", content: "will archive", scope: globalScope() });
+  await repo.archive(toArchive.id, globalScope());
+
+  const all = await repo.listAllMemories();
+  assert.equal(all.length, 2);
+  assert.ok(all.every((m) => m.status === "active"));
+  db.close();
+});
+
+test("listAllMemories: scoped filters via the same scope rules as query()", async () => {
+  const { db, repo } = setup();
+  await repo.create({ type: "fact", content: "global", scope: globalScope() });
+  await repo.create({ type: "fact", content: "project-a only", scope: projectScope("project-a") });
+  await repo.create({ type: "fact", content: "project-b only", scope: projectScope("project-b") });
+
+  const forA = await repo.listAllMemories({ scope: projectScope("project-a") });
+  assert.equal(forA.length, 2); // the global one + project-a's own
+  assert.ok(forA.some((m) => m.content === "global"));
+  assert.ok(forA.some((m) => m.content === "project-a only"));
+  assert.ok(!forA.some((m) => m.content === "project-b only"));
+  db.close();
+});
+
+test("listAllMemories: respects limit", async () => {
+  const { db, repo } = setup();
+  for (let i = 0; i < 5; i++) {
+    await repo.create({ type: "fact", content: `m${i}`, scope: globalScope() });
+  }
+  const limited = await repo.listAllMemories({ limit: 2 });
+  assert.equal(limited.length, 2);
+  db.close();
+});
+
+test("getMemoryById: finds a memory regardless of scope, unlike get()", async () => {
+  const { db, repo } = setup();
+  const record = await repo.create({ type: "fact", content: "scoped", scope: projectScope("project-a") });
+  const found = await repo.getMemoryById(record.id);
+  assert.equal(found?.id, record.id);
+  db.close();
+});
+
+test("getMemoryById: also finds archived memories, mirroring get()'s unfiltered-by-status behavior", async () => {
+  const { db, repo } = setup();
+  const record = await repo.create({ type: "fact", content: "will archive", scope: globalScope() });
+  await repo.archive(record.id, globalScope());
+  const found = await repo.getMemoryById(record.id);
+  assert.equal(found?.status, "archived");
+  db.close();
+});
+
+test("getMemoryById: returns null for an unknown id", async () => {
+  const { db, repo } = setup();
+  assert.equal(await repo.getMemoryById("00000000-0000-0000-0000-000000000000"), null);
+  db.close();
+});

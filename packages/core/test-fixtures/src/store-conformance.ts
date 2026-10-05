@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { Candidate, RetrievalStore, ScopeRef } from "@brain/contracts";
+import type { Candidate, MemoryRecord, RetrievalStore, ScopeRef } from "@brain/contracts";
 import { globalScope, projectScope } from "@brain/contracts";
 
 /**
@@ -22,6 +22,8 @@ import { globalScope, projectScope } from "@brain/contracts";
 export interface ConformanceSeed {
   content: string;
   scope: ScopeRef;
+  /** Defaults to "active" -- set "archived" only for the eligibility tests below. */
+  status?: MemoryRecord["status"];
 }
 
 export interface ConformanceStore {
@@ -149,6 +151,23 @@ export function runRetrievalStoreConformance(harness: ConformanceHarness): void 
     }
   });
 
+  // Brain Corpus Hygiene V1: candidate generation is where archived-eligibility
+  // actually has to hold -- a memory can be scope-eligible and still be excluded
+  // because status says it shouldn't surface in normal retrieval.
+  test(label("lexical: an archived record is never returned as a candidate"), async () => {
+    const { store, cleanup } = await harness.setup([
+      { content: STRONG, scope: globalScope(), status: "archived" },
+      { content: WEAK, scope: globalScope() },
+    ]);
+    try {
+      const candidates = await store.lexicalSearch({ text: QUERY, scope: globalScope(), limit: 10 });
+      assert.equal(byContent(candidates, STRONG), undefined, "an archived record must never be a candidate");
+      assert.ok(byContent(candidates, WEAK), "the active record must still be a candidate");
+    } finally {
+      cleanup();
+    }
+  });
+
   if (!semantic) {
     test(label("semantic: SKIPPED -- vector backend unavailable in this harness"), (t) => {
       t.skip("harness reported semantic:false");
@@ -210,6 +229,19 @@ export function runRetrievalStoreConformance(harness: ConformanceHarness): void 
     try {
       const candidates = await store.semanticSearch({ text: NEAR_DUPLICATE, scope: projectScope("project-b"), limit: 10 });
       assert.equal(candidates.length, 0, "a project-b query must never see a project-a record");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test(label("semantic: an archived record is never returned as a candidate"), async () => {
+    const { store, cleanup } = await harness.setup([
+      { content: NEAR_DUPLICATE, scope: globalScope(), status: "archived" },
+      { content: UNRELATED, scope: globalScope() },
+    ]);
+    try {
+      const candidates = await store.semanticSearch({ text: NEAR_DUPLICATE, scope: globalScope(), limit: 10 });
+      assert.equal(byContent(candidates, NEAR_DUPLICATE), undefined, "an archived record must never be a candidate");
     } finally {
       cleanup();
     }

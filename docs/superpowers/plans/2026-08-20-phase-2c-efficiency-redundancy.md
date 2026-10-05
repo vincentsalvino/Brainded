@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (strict, `NodeNext`, `exactOptionalPropertyTypes`), Zod schemas, better-sqlite3 + sqlite-vec (`vec_distance_cosine`), Node's built-in test runner (`node --test`), npm workspaces.
 
-**Spec:** `docs/PHASE_2C_SPEC.md` (also read `docs/PHASE_2_SPEC.md`, `docs/PHASE_2_DECISIONS.md`, and `docs/PHASE_2_FINDINGS.md` for the historical grounding the spec assumes).
+**Spec:** `docs/phase-2c/PHASE_2C_SPEC.md` (also read `docs/phase-2/PHASE_2_SPEC.md`, `docs/phase-2/PHASE_2_DECISIONS.md`, and `docs/phase-2/PHASE_2_FINDINGS.md` for the historical grounding the spec assumes).
 
 ## Global Constraints
 
@@ -1020,7 +1020,7 @@ Add a documented default constant near the top of the file, after the existing `
  * 2C-004. NOT a statistically fit value -- the one real datapoint
  * (PHASE_2_FINDINGS.md 5) puts the known redundant pair at cosine 0.785 with
  * the next-nearest distinct memory at 0.518. 0.75 gives margin below the
- * former and above the latter. Adjustable; see docs/PHASE_2C_FINDINGS.md for
+ * former and above the latter. Adjustable; see docs/phase-2c/PHASE_2C_FINDINGS.md for
  * the threshold sweep this default is informed by.
  */
 export const DEFAULT_REDUNDANCY_THRESHOLD = 0.75;
@@ -1543,7 +1543,7 @@ export interface MemoryLookup {
  * field naming which OTHER memory it is redundant with (only free-text
  * `notes`). Exported examples therefore always carry redundantWith: {} --
  * this function cannot reconstruct redundancy edges from history. See
- * docs/PHASE_2C_FINDINGS.md.
+ * docs/phase-2c/PHASE_2C_FINDINGS.md.
  */
 export async function exportFromEvents(
   events: EventTables,
@@ -1959,7 +1959,7 @@ test("CONSTRAINED BUDGET: the demoted member of the plural-rule pair is omitted 
  *      the CONSTRAINED BUDGET test above).
  *
  * This test instead reports both budgets' real numbers (captured for
- * docs/PHASE_2C_FINDINGS.md, Task 9) and asserts only what is actually
+ * docs/phase-2c/PHASE_2C_FINDINGS.md, Task 9) and asserts only what is actually
  * guaranteed: the metrics are well-formed and the hand-labeled seed dataset
  * yields a near-complete labeledFraction.
  */
@@ -2015,7 +2015,7 @@ test("A' vs C' efficiency comparison over the seed dataset (ample and constraine
 - [ ] **Step 4: Run and record the actual numbers**
 
 Run: `npm run typecheck && npm run build && npm test` (in `packages/evaluation`, then full monorepo)
-Expected: PASS. Capture the printed threshold-sweep table and the A′/C′ efficiency comparison — these real numbers go into `docs/PHASE_2C_FINDINGS.md` (Task 9), not fabricated or estimated.
+Expected: PASS. Capture the printed threshold-sweep table and the A′/C′ efficiency comparison — these real numbers go into `docs/phase-2c/PHASE_2C_FINDINGS.md` (Task 9), not fabricated or estimated.
 
 Expected new test count: 8 (349 total in `packages/evaluation` + monorepo — exact count depends on how many examples the loops iterate; report the real number from the run, not this estimate).
 
@@ -2032,7 +2032,7 @@ git commit -m "test(2C-004/006): threshold sweep, A' vs C' comparison, constrain
 
 **Files:**
 - Modify: `packages/storage/src/local-embedding-provider.test.ts`
-- Create: `docs/PHASE_2C_FINDINGS.md`
+- Create: `docs/phase-2c/PHASE_2C_FINDINGS.md`
 
 **Interfaces:** none new — this task is verification, empirical write-up, and reporting.
 
@@ -2111,7 +2111,7 @@ db.close();
 "
 ```
 
-Do NOT merge pre-Phase-2B context events (`task_id` populated but `context_id` never referenced by any feedback/outcome) into "correlated" counts — report them as a separate "historical/unlinked" figure. Record the real output in `docs/PHASE_2C_FINDINGS.md`.
+Do NOT merge pre-Phase-2B context events (`task_id` populated but `context_id` never referenced by any feedback/outcome) into "correlated" counts — report them as a separate "historical/unlinked" figure. Record the real output in `docs/phase-2c/PHASE_2C_FINDINGS.md`.
 
 - [ ] **Step 4: Stopword audit — write-up only, no fix**
 
@@ -2120,9 +2120,9 @@ Read `buildFtsQuery()` in `packages/storage/src/retrieval-store.ts` (unchanged b
 - Whether it affected any Task 8 threshold-sweep result (check: did any sweep example's candidate pool include a memory that only matched a stopword? Inspect the candidate lists captured in Task 8 if uncertain).
 - A proposed `P2C-R1` task: stopword/near-universal-term filtering in `buildFtsQuery()`, scoped as a **separate, future, retrieval-quality task** — not implemented here, per the spec's explicit instruction to keep retrieval-candidate quality separate from context redundancy.
 
-- [ ] **Step 5: Write `docs/PHASE_2C_FINDINGS.md`**
+- [ ] **Step 5: Write `docs/phase-2c/PHASE_2C_FINDINGS.md`**
 
-Use the exact section structure requested in `docs/PHASE_2C_SPEC.md`'s originating brief:
+Use the exact section structure requested in `docs/phase-2c/PHASE_2C_SPEC.md`'s originating brief:
 
 ```
 ## PHASE 2C STATUS
@@ -2174,7 +2174,7 @@ Separately run `npm run test:integration` (in `packages/storage`) and report its
 - [ ] **Step 7: Commit the findings doc**
 
 ```bash
-git add docs/PHASE_2C_FINDINGS.md
+git add docs/phase-2c/PHASE_2C_FINDINGS.md
 git commit -m "docs(2C): Phase 2C findings report -- efficiency, redundancy evaluation, stopword audit, learning readiness"
 ```
 

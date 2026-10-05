@@ -6,7 +6,7 @@ import { sortSimilarityPairs } from "@brain/contracts";
  * which side of an ALREADY-similarity-flagged pair is kept (`a`) vs demoted
  * (`b`) when the two sides differ in specificity -- never to decide whether a
  * pair is similar enough to flag (that's minSimilarity, upstream), and never
- * touches RankedResult.rank itself (docs/PHASE_2C_PILOT_REPORT.md's real
+ * touches RankedResult.rank itself (docs/phase-2c/PHASE_2C_PILOT_REPORT.md's real
  * finding: rank-only orientation let a higher-ranked global memory demote a
  * lower-ranked project-specific one it was redundant with).
  *

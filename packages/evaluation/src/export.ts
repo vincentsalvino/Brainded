@@ -34,7 +34,7 @@ export interface MemoryLookup {
  * field naming which OTHER memory it is redundant with (only free-text
  * `notes`). Exported examples therefore always carry redundantWith: {} --
  * this function cannot reconstruct redundancy edges from history. See
- * docs/PHASE_2C_FINDINGS.md.
+ * docs/phase-2c/PHASE_2C_FINDINGS.md.
  */
 export async function exportFromEvents(
   events: EventTables,

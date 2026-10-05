@@ -47,13 +47,13 @@ export function createBrain(dbPath: string): Brain {
     new EventService(eventStore),
     { vectorSearchAvailable: db.vectorSearchAvailable },
     // 2C/2C.7: machinery in place, disabled pending live-pilot evidence strong
-    // enough to justify a default-enable decision (docs/PHASE_2C7_REPORT.md).
+    // enough to justify a default-enable decision (docs/phase-2c/PHASE_2C7_REPORT.md).
     { enabled: false, ...DEFAULT_NEAR_DUPLICATE_POLICY },
     new CodeRetrievalService(codeSearchStore),
     new DependencyGraphService(codebaseRepository, codeDependencyStore),
     // Phase 4.2 (F10): machinery wired end to end, DEFAULT_LEARNING_CONFIG.enabled
     // stays false -- the default-enable decision belongs to Phase 4.3
-    // (docs/PHASE_4_DECISIONS.md F14/F15), same discipline as redundancy above.
+    // (docs/phase-4/PHASE_4_DECISIONS.md F14/F15), same discipline as redundancy above.
     new LearningSignalService(performanceStore, DEFAULT_LEARNING_CONFIG),
   );
 

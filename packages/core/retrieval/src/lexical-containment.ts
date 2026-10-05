@@ -8,7 +8,7 @@
  * removing the bypass entirely (Strategy H2: cosine>=candidateFloor AND
  * containment>=containmentThreshold, no exception) rejects both false
  * positives at zero cost to any previously-validated detection. This file
- * now implements H2, decided in docs/PHASE_2C9_REPORT.md and shipped in
+ * now implements H2, decided in docs/phase-2c/PHASE_2C9_REPORT.md and shipped in
  * 2C.10. It decides ONLY "are these two contents a near-duplicate" -- never
  * which side anchors (toRedundancyPairs, unchanged, still owns that) and
  * never ranking or token budgeting.
@@ -78,7 +78,7 @@ export const DEFAULT_NEAR_DUPLICATE_POLICY: NearDuplicatePolicy = {
   containmentThreshold: DEFAULT_CONTAINMENT_THRESHOLD,
 };
 
-/** Phase 2C.10 Strategy H2, exactly: cosine >= candidateFloor AND containment >= containmentThreshold. No unconditional cosine-only bypass at any cosine value (docs/PHASE_2C9_REPORT.md). */
+/** Phase 2C.10 Strategy H2, exactly: cosine >= candidateFloor AND containment >= containmentThreshold. No unconditional cosine-only bypass at any cosine value (docs/phase-2c/PHASE_2C9_REPORT.md). */
 export function isNearDuplicate(
   input: { cosineSimilarity: number; contentA: string; contentB: string },
   policy: NearDuplicatePolicy = DEFAULT_NEAR_DUPLICATE_POLICY,

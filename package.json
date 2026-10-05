@@ -12,7 +12,9 @@
   "scripts": {
     "build": "npm run build --workspace=@brain/contracts && npm run build --workspace=@brain/storage --workspace=@brain/memory --workspace=@brain/ranking --workspace=@brain/retrieval --workspace=@brain/learning --workspace=@brain/token --workspace=@brain/context --workspace=@brain/compression --workspace=@brain/test-fixtures --workspace=@brain/evaluation --workspace=@brain/codebase && npm run build --workspace=@brain/gateway --workspace=@brain/knowledge && npm run build --workspaces --if-present",
     "typecheck": "npm run build --workspace=@brain/contracts && npm run build --workspace=@brain/storage --workspace=@brain/memory --workspace=@brain/ranking --workspace=@brain/retrieval --workspace=@brain/learning --workspace=@brain/token --workspace=@brain/context --workspace=@brain/compression --workspace=@brain/test-fixtures --workspace=@brain/evaluation --workspace=@brain/codebase && npm run build --workspace=@brain/gateway --workspace=@brain/knowledge && npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "visualizer": "npm run dev --workspace=@brain/visualizer",
+    "dev": "npm run dev --workspace=@brain/visualizer"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

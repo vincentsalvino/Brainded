@@ -5,6 +5,11 @@ Code, Codex, or anything else that speaks MCP stdio. Nothing in this document
 is specific to one agent. If it were, it would belong in that agent's own
 instruction file (`AGENTS.md`, `CLAUDE.md`), not here.
 
+Whether a given task must call these tools at all is a separate question --
+see `BRAIN_WORKFLOW_POLICY.md` in this folder for task classification and the
+preflight/completion/bypass policy. Same split as above: that document is
+process, this one is mechanics.
+
 ## The 10 tools
 
 `brain_context`, `brain_recall`, `brain_search`, `brain_remember`,
@@ -80,6 +85,34 @@ include a `signal` object — it accepts exactly three optional fields and no
 others: `testsPassed` (boolean), `reviewScore` (number, 0-1), `humanEdited`
 (boolean). The schema is `.strict()`; any other key throws a validation
 error instead of being accepted.
+
+## Native memory coexistence
+
+Brainded (`@brain/mcp`) is the shared, cross-agent, durable memory layer —
+not a replacement for Claude's or Codex's own native/session memory, and not
+synchronized with either. Nothing here scrapes, imports, or mirrors
+client-native memory, and nothing should.
+
+Ownership stays split three ways:
+- **Brainded** — durable knowledge another agent, or a future session,
+  should know: architecture decisions, constraints, validated conventions,
+  failure modes, patterns. See "Durable-memory criteria" above.
+- **Client-native memory** — client-local preferences and continuity (e.g.
+  "prefer concise responses," "this session was investigating X"). Never
+  required to mirror into Brainded.
+- **Session context** — scratch reasoning, in-progress hypotheses, temporary
+  state. Never persisted automatically.
+
+When sources conflict, higher wins: explicit user instruction > current
+repository/code state > this protocol > scoped Brainded memory > client-native
+memory > session assumption. A stale Brainded memory that contradicts the
+current repository loses to the repository — fix or forget the memory once
+the newer state is confirmed, rather than continuing to act on it.
+
+Don't intentionally duplicate durable project knowledge into native memory
+when Brainded already holds it (project knowledge → Brainded, client
+preference → native memory, temporary state → session) — but a native system
+independently remembering something Brainded also knows is not a bug to fix.
 
 ## What this protocol deliberately does not cover
 

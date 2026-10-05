@@ -10,5 +10,14 @@ Read `docs/agent-integration/AGENT_BRAIN_PROTOCOL.md` before using any
 context, when a memory is worth writing, and how to report feedback and
 outcomes.
 
+`@brain/mcp` is shared cross-agent memory, not a replacement for Codex's own
+native memory — the protocol above covers how the two coexist.
+
+For substantive work (architecture-sensitive, multi-file, a bug
+investigation, a refactor, a schema/API change) — not a typo or a one-line
+fix — call `brain_context` before implementing, keep the `contextId`, and
+record `brain_record_outcome` when done. Full policy:
+`docs/agent-integration/BRAIN_WORKFLOW_POLICY.md`.
+
 Do not implement Codex-specific (or any client-specific) Brain logic — the
 protocol above applies identically regardless of which agent is connected.

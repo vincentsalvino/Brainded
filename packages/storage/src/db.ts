@@ -27,11 +27,23 @@ export interface BrainDatabase {
  * Opens (creating if needed) the Brain's single SQLite database: WAL mode, FTS5 +
  * triggers, sqlite-vec loaded, schema applied from the single migration source of
  * truth. `path` may be a real file path or ':memory:' for tests.
+ *
+ * `options.readonly` opens the connection via better-sqlite3's native readonly
+ * mode instead: the file must already exist (never silently creates one), never
+ * runs migrations, never creates the vec0 tables -- a structural guarantee (the
+ * SQLite driver itself rejects a write) for a caller that must never be able to
+ * mutate the Brain's database, not just a convention it is trusted to follow. See
+ * packages/visualizer, the first caller of this mode.
  */
-export function openDatabase(path: string): BrainDatabase {
-  const db = new Database(path);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+export function openDatabase(path: string, options?: { readonly?: boolean }): BrainDatabase {
+  const readonly = options?.readonly ?? false;
+  const db = readonly ? new Database(path, { readonly: true, fileMustExist: true }) : new Database(path);
+  // Setting journal_mode is itself a write -- must not be attempted on a readonly
+  // connection. WAL mode is already durably recorded in the file by whichever
+  // read-write connection created it, so a readonly connection reads WAL content
+  // correctly without ever re-issuing this pragma.
+  if (!readonly) db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON"); // connection-local enforcement flag, not a file write -- safe either way
 
   let vectorSearchAvailable = true;
   try {
@@ -44,10 +56,12 @@ export function openDatabase(path: string): BrainDatabase {
     );
   }
 
-  applyMigrations(db);
-  if (vectorSearchAvailable) {
-    ensureVectorTable(db);
-    ensureCodeVectorTable(db);
+  if (!readonly) {
+    applyMigrations(db);
+    if (vectorSearchAvailable) {
+      ensureVectorTable(db);
+      ensureCodeVectorTable(db);
+    }
   }
 
   return {

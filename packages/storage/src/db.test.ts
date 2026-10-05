@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -197,4 +197,89 @@ test("migrations: reopening an already-migrated database is idempotent and appli
     second.close();
     rmSync(dirname(path), { recursive: true, force: true });
   }
+});
+
+// --- readonly mode ----------------------------------------------------------
+
+test("readonly: rejects a real INSERT", () => {
+  const path = tempDbPath();
+  openDatabase(path).close();
+
+  const ro = openDatabase(path, { readonly: true });
+  try {
+    assert.throws(() =>
+      ro.raw
+        .prepare(
+          `INSERT INTO memories (id, type, content, scope_kind, scope_id, source_origin, confidence, status, created_at, updated_at)
+           VALUES ('44444444-4444-4444-8444-444444444444', 'fact', 'nope', 'global', NULL, 'system', 0.5, 'active', 'now', 'now')`,
+        )
+        .run(),
+    );
+  } finally {
+    ro.close();
+    rmSync(dirname(path), { recursive: true, force: true });
+  }
+});
+
+test("readonly: fileMustExist -- throws for a nonexistent path and does not create one", () => {
+  const dir = mkdtempSync(join(tmpdir(), "brain-readonly-"));
+  const path = join(dir, "does-not-exist.db");
+  try {
+    assert.throws(() => openDatabase(path, { readonly: true }));
+    assert.equal(existsSync(path), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readonly: never appends to schema_migrations", () => {
+  const path = tempDbPath();
+  const rw = openDatabase(path);
+  const before = appliedMigrations(rw.raw);
+  rw.close();
+
+  const ro = openDatabase(path, { readonly: true });
+  try {
+    assert.deepEqual(appliedMigrations(ro.raw), before);
+  } finally {
+    ro.close();
+    rmSync(dirname(path), { recursive: true, force: true });
+  }
+});
+
+test("readonly: sees an uncheckpointed WAL write from a concurrent read-write connection", () => {
+  const path = tempDbPath();
+  const rw = openDatabase(path);
+  try {
+    rw.raw
+      .prepare(
+        `INSERT INTO memories (id, type, content, scope_kind, scope_id, source_origin, confidence, status, created_at, updated_at)
+         VALUES ('55555555-5555-4555-8555-555555555555', 'fact', 'wal visible?', 'global', NULL, 'system', 0.5, 'active', 'now', 'now')`,
+      )
+      .run();
+
+    // rw is deliberately still open here -- this is the point of the test.
+    const ro = openDatabase(path, { readonly: true });
+    try {
+      const row = ro.raw.prepare(`SELECT COUNT(*) as n FROM memories`).get() as { n: number };
+      assert.equal(row.n, 1);
+    } finally {
+      ro.close();
+    }
+  } finally {
+    rw.close();
+    rmSync(dirname(path), { recursive: true, force: true });
+  }
+});
+
+test("readonly: db.raw.readonly reflects connection mode", () => {
+  const path = tempDbPath();
+  const rw = openDatabase(path);
+  assert.equal(rw.raw.readonly, false);
+  rw.close();
+
+  const ro = openDatabase(path, { readonly: true });
+  assert.equal(ro.raw.readonly, true);
+  ro.close();
+  rmSync(dirname(path), { recursive: true, force: true });
 });

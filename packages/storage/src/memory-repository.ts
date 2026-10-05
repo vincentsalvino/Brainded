@@ -10,6 +10,8 @@ import {
   type ScopeRef,
   type EmbeddingProvider,
   type MemoryMutationEvent,
+  type MemoryType,
+  MEMORY_TYPES,
   MemoryCreateInputSchema,
   MemoryUpdateInputSchema,
 } from "@brain/contracts";
@@ -285,5 +287,44 @@ export class SqliteMemoryRepository implements MemoryRepository {
     if (result.changes > 0) {
       this.db.prepare(`DELETE FROM memory_vectors WHERE memory_id = ?`).run(id);
     }
+  }
+
+  /** Deliberately unscoped -- see countAllMemories' doc comment on MemoryRepository (@brain/contracts). */
+  async countAllMemories(): Promise<{ total: number; active: number; archived: number; byType: Record<MemoryType, number> }> {
+    const byType = Object.fromEntries(MEMORY_TYPES.map((t): [MemoryType, number] => [t, 0])) as Record<MemoryType, number>;
+    const typeRows = this.db.prepare(`SELECT type, COUNT(*) as n FROM memories GROUP BY type`).all() as {
+      type: MemoryType;
+      n: number;
+    }[];
+    for (const row of typeRows) byType[row.type] = row.n;
+
+    const statusRows = this.db.prepare(`SELECT status, COUNT(*) as n FROM memories GROUP BY status`).all() as {
+      status: string;
+      n: number;
+    }[];
+    const active = statusRows.find((r) => r.status === "active")?.n ?? 0;
+    const archived = statusRows.find((r) => r.status === "archived")?.n ?? 0;
+
+    return { total: active + archived, active, archived, byType };
+  }
+
+  async listAllMemories(options?: { scope?: ScopeRef; limit?: number }): Promise<MemoryRecord[]> {
+    const limit = options?.limit ?? 500;
+    if (options?.scope) {
+      const where = scopeWhere(options.scope);
+      const rows = this.db
+        .prepare(`SELECT * FROM memories WHERE status = 'active' AND ${where.clause} ORDER BY created_at DESC LIMIT ?`)
+        .all(...where.params, limit) as MemoryRow[];
+      return rows.map(rowToRecord);
+    }
+    const rows = this.db
+      .prepare(`SELECT * FROM memories WHERE status = 'active' ORDER BY created_at DESC LIMIT ?`)
+      .all(limit) as MemoryRow[];
+    return rows.map(rowToRecord);
+  }
+
+  async getMemoryById(id: string): Promise<MemoryRecord | null> {
+    const row = this.db.prepare(`SELECT * FROM memories WHERE id = ?`).get(id) as MemoryRow | undefined;
+    return row ? rowToRecord(row) : null;
   }
 }

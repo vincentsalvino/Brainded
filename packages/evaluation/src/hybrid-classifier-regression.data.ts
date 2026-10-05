@@ -8,8 +8,8 @@
  * redundancy-pairs.jsonl (2C.2) and redundancy-pairs-boundary.jsonl (2C.3) for
  * the "authored" group; those files remain the source of truth for that
  * content and are untouched by this file. `similarity` values here are the
- * exact real-model measurements already on record in docs/PHASE_2C2_REPORT.md,
- * docs/PHASE_2C3_REPORT.md, docs/PHASE_2C5_REPORT.md, and docs/PHASE_2C4_REPORT.md
+ * exact real-model measurements already on record in docs/phase-2c/PHASE_2C2_REPORT.md,
+ * docs/phase-2c/PHASE_2C3_REPORT.md, docs/phase-2c/PHASE_2C5_REPORT.md, and docs/phase-2c/PHASE_2C4_REPORT.md
  * -- not recomputed, per Phase 2C.6/2C.7 instruction not to re-embed frozen evidence.
  */
 
