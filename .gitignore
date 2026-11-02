@@ -1,14 +1,32 @@
+# Dependencies and generated output
 node_modules/
 dist/
 dist-test/
+coverage/
+.cache/
 *.tsbuildinfo
-data/*.db
-data/*.db-shm
-data/*.db-wal
+*.log
+
+# Local databases, backups, and environment configuration
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 .env
-references/
-.worktrees/
-.superpowers/
-.claude
-AGENTS.md
-CLAUDE.md
+.env.*
+!.env.example
+
+# Optional reference repositories and local agent state
+/references/
+/.worktrees/
+/.superpowers/
+/.claude/
+/.codex/
+
+# Operating-system and editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
