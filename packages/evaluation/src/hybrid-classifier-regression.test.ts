@@ -8,7 +8,7 @@ import { REGRESSION_PAIRS, HARD_CASES, type RegressionPair } from "./hybrid-clas
  * positives across 99 real pairs, all four hard cases correct) against the
  * REAL production classifier -- not a reimplementation of it. No embedding
  * model, no network: every similarity here is already-frozen real-model
- * evidence (docs/phase-2c/PHASE_2C2_REPORT.md through PHASE_2C6_REPORT.md), so this
+ * evidence (docs/archive/phase-2c/PHASE_2C2_REPORT.md through PHASE_2C6_REPORT.md), so this
  * runs in the default suite. Content and labels are unchanged from 2C.6.
  */
 
@@ -43,7 +43,7 @@ test("hybrid classifier: reproduces Phase 2C.6 Hybrid C's exact detections (same
   const truePositivesByGroup = (group: string) =>
     verdicts.filter((v) => v.group === group && v.expectedLabel === "NEAR_DUPLICATE" && v.predicted === true).length;
 
-  // Exact counts from docs/phase-2c/PHASE_2C6_REPORT.md's Hybrid C row: authored 33/36,
+  // Exact counts from docs/archive/phase-2c/PHASE_2C6_REPORT.md's Hybrid C row: authored 33/36,
   // organic 2/4, control 0/1 (2C.4 A~C's cosine never reaches the candidate
   // floor, correctly unrecoverable by this rule -- see that report's CONTROL
   // RESULT section).

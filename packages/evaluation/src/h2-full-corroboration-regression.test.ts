@@ -5,14 +5,14 @@ import { REGRESSION_PAIRS } from "./hybrid-classifier-regression.data.js";
 import { ORGANIC_2C8_PAIRS } from "./h2-full-corroboration.data.js";
 
 /**
- * 2C.10. Reproduces docs/phase-2c/PHASE_2C9_REPORT.md's 109-pair Strategy H2 combined
+ * 2C.10. Reproduces docs/archive/phase-2c/PHASE_2C9_REPORT.md's 109-pair Strategy H2 combined
  * confusion matrix (TP 35 / FP 0 / TN 66 / FN 8, precision 1.0000, recall
  * 0.8140) against the REAL production classifier -- not a reimplementation.
  * 99 pairs from the frozen 2C.6 corpus + 10 metrics-eligible organic-2C8
  * pairs = 109; the historical dedup pair and the one AMBIGUOUS pair are
  * excluded, per 2C.9's own accounting. If this file does not reproduce
  * those exact four numbers, H2 is not correctly implemented -- 2C.10's Part B
- * live validation must not proceed (see docs/phase-2c/PHASE_2C10_REPORT.md).
+ * live validation must not proceed (see docs/archive/phase-2c/PHASE_2C10_REPORT.md).
  */
 
 interface Sample {
@@ -35,7 +35,7 @@ function allSamples(): Sample[] {
   return [...frozen, ...organic];
 }
 
-test("H2 109-pair regression: combined confusion matrix matches docs/phase-2c/PHASE_2C9_REPORT.md exactly (TP 35 / FP 0 / TN 66 / FN 8)", () => {
+test("H2 109-pair regression: combined confusion matrix matches docs/archive/phase-2c/PHASE_2C9_REPORT.md exactly (TP 35 / FP 0 / TN 66 / FN 8)", () => {
   const samples = allSamples();
   assert.equal(samples.length, 109, "99 frozen + 10 metrics-eligible organic-2C8 pairs");
 

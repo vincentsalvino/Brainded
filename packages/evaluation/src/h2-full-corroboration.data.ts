@@ -1,7 +1,7 @@
 /**
  * 2C.10. The 10 metrics-eligible `organic-2C8` pairs from
- * docs/phase-2c/PHASE_2C8_REPORT.md, combined with `hybrid-classifier-regression.data.ts`'s
- * frozen 99 to reproduce docs/phase-2c/PHASE_2C9_REPORT.md's 109-pair Strategy H2
+ * docs/archive/phase-2c/PHASE_2C8_REPORT.md, combined with `hybrid-classifier-regression.data.ts`'s
+ * frozen 99 to reproduce docs/archive/phase-2c/PHASE_2C9_REPORT.md's 109-pair Strategy H2
  * confusion matrix (TP 35 / FP 0 / TN 66 / FN 8) against the real production
  * classifier. `expectedLabel` is the human ground truth from 2C.8's content
  * review, NOT Strategy A's (sometimes wrong) prediction.

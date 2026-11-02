@@ -6,7 +6,7 @@ import type { FeedbackEvent, OutcomeEvent, MemoryPerformanceRaw, Candidate, Rank
 import { applyFeedbackToPerformance, applyOutcomeToPerformance } from "@brain/storage";
 
 /**
- * Phase 4.3B (docs/phase-4/PHASE_4_3_REPORT.md). Time-causal historical replay -- reuses production's
+ * Phase 4.3B (docs/archive/phase-4/PHASE_4_3_REPORT.md). Time-causal historical replay -- reuses production's
  * exact applyFeedbackToPerformance/applyOutcomeToPerformance (from @brain/storage), never a
  * reimplementation, so "replay formula matches production" and "duplicate semantics match
  * production" hold by construction, not by parallel maintenance.
@@ -272,7 +272,7 @@ function arraysEqual(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
-// --- Classification (docs/phase-4/PHASE_4_3_REPORT.md "HARMFUL REORDER DEFINITION" / "CONTEXT-IMPACTING
+// --- Classification (docs/archive/phase-4/PHASE_4_3_REPORT.md "HARMFUL REORDER DEFINITION" / "CONTEXT-IMPACTING
 // REORDER") -- shared by the real-corpus run and, if a future organic pilot is run, by that
 // paired comparison too. Uses the mission's own two-clause definition verbatim, not a redefined
 // one, and the F2 bound (not the superseded "any gap > maxBoost" claim) for "comparable relevance."

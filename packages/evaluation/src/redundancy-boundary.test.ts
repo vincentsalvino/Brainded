@@ -11,7 +11,7 @@ import { cosineSimilarity, distributionStats, classificationMetrics, sweepThresh
  * vs. same-domain-distinct (C) only. Paraphrase (B) and unrelated (D) from
  * Phase 2C.2 are deliberately excluded from this phase's analysis -- that
  * question was already answered (structural overlap, see
- * docs/phase-2c/PHASE_2C2_REPORT.md) and is out of scope here. Real network/model
+ * docs/archive/phase-2c/PHASE_2C2_REPORT.md) and is out of scope here. Real network/model
  * download on first run -- integration-only, excluded from the default `test`
  * script (see package.json).
  */

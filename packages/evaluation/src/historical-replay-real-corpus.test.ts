@@ -15,7 +15,7 @@ import {
 } from "./historical-replay.js";
 
 /**
- * Phase 4.3B real run (docs/phase-4/PHASE_4_3_REPORT.md "HISTORICAL REPLAY RESULTS"). Operates on a COPY
+ * Phase 4.3B real run (docs/archive/phase-4/PHASE_4_3_REPORT.md "HISTORICAL REPLAY RESULTS"). Operates on a COPY
  * of the real data/brain.db -- copied via `copyFileSync`, never opened with a migrating
  * connection at the original path (PHASE_4_FINDINGS.md's live-database-safety discipline,
  * unchanged since Phase 4.1/4.2). Uses the REAL LocalEmbeddingProvider (a real local model) to

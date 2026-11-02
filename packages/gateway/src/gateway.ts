@@ -239,7 +239,7 @@ export class Gateway {
     // exactOptionalPropertyTypes: codeItems/dependencyItems must be OMITTED, not
     // set to literal `undefined`, when there is nothing to deliver -- conditional
     // spread, matching packages/storage's established pattern for optional
-    // fields (see docs/superpowers/plans/2026-08-20-phase-2c-efficiency-redundancy.md).
+    // fields (see docs/archive/superpowers/plans/2026-08-20-phase-2c-efficiency-redundancy.md).
     return {
       ...contextPack,
       contextId,

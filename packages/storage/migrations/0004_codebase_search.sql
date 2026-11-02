@@ -1,5 +1,5 @@
 -- Phase 3.2: Code Retrieval. Makes 3.1's persisted code_chunks lexical- and
--- semantic-searchable. See docs/phase-3/PHASE_3_SPEC.md Phase 3.2 Spec for the full design.
+-- semantic-searchable. See docs/archive/phase-3/PHASE_3_SPEC.md Phase 3.2 Spec for the full design.
 --
 -- code_chunks_fts mirrors memories_fts (0001) exactly: external-content FTS5 kept
 -- in sync via triggers. replaceFile's delete-then-insert of a file's chunks (3.1,

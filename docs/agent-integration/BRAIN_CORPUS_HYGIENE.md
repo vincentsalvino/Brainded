@@ -10,7 +10,7 @@ mechanical gap that let it happen, and states plainly what is still unresolved.
 
 `data/brain.db` was, as of this audit, **100% pilot/evaluation-provenance
 memory content** except for one new record this session's prior task wrote.
-This is not new -- `docs/phase-4/PHASE_4_FINDINGS.md` §3 already established
+This is not new -- `docs/archive/phase-4/PHASE_4_FINDINGS.md` §3 already established
 "no REAL-USAGE (organic dogfooding) data in `data/brain.db`" as of Phase 4.
 What's new here is the first organic task actually running against that
 corpus and surfacing the consequence: **synthetic pilot content was globally
@@ -47,7 +47,7 @@ two places:
 
 1. **The `memories` table's own `source_origin`/`source_agent_id`/
    `source_task_id` columns** (populated at write time, immutable since).
-2. **`docs/phase-2c/PHASE_2C8_REPORT.md:72-78`**, written before this audit,
+2. **`docs/archive/phase-2c/PHASE_2C8_REPORT.md:72-78`**, written before this audit,
    independently: "`a76fdf66` was seeded in the 2C.4 pilot (2026-08-23,
    `source_task_id: phase2c-pilot-seed`) and `cb18ede2` predates this entire
    evaluation project (2026-08-18, `source_origin: system`)." That report
@@ -151,7 +151,7 @@ full mutation/feedback history intact for future audits -- exactly what
 understood.
 
 An in-repo cross-cutting decision log doesn't exist for non-phase work
-(`docs/planning/DECISIONS.md` and `docs/phase-4/PHASE_4_DECISIONS.md` are
+(`docs/archive/planning/DECISIONS.md` and `docs/archive/phase-4/PHASE_4_DECISIONS.md` are
 both phase-scoped, closed records -- same reasoning as the prior task's
 Native Memory Coexistence report); this section is the decision record.
 
@@ -273,7 +273,7 @@ mechanically derivable yet (see BRAIN_WORKFLOW_POLICY.md).
 
 `agent-workflow-integration-v1` is **not** official Phase 4.3 organic
 learning-gate evidence. Checked against the frozen protocol
-(`docs/phase-4/PHASE_4_3_REPORT.md:161-186`): no pre-task snapshot was taken,
+(`docs/archive/phase-4/PHASE_4_3_REPORT.md:161-186`): no pre-task snapshot was taken,
 no OFF/ON arm was assigned (learning is globally off, so there was no arm to
 assign), no opposite-arm counterfactual was generated from a pre-task
 snapshot, and the task id wasn't tagged `phase4.3-organic-NN-slug`. It *is*

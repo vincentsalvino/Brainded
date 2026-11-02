@@ -1,5 +1,5 @@
 -- Phase 3.3: Dependency Intelligence. File-level static import graph over the
--- repositories 3.1 indexes. See docs/phase-3/PHASE_3_SPEC.md Phase 3.3 Spec for the full
+-- repositories 3.1 indexes. See docs/archive/phase-3/PHASE_3_SPEC.md Phase 3.3 Spec for the full
 -- design. Does not modify 0003/0004.
 --
 -- source_file_id/target_file_id carry NO foreign key to code_files(id), and

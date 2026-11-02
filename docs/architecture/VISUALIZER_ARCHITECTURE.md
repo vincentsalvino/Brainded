@@ -3,7 +3,7 @@
 `packages/visualizer` is an independent local developer/observability tool over
 the Brain. It is **not** a Brain phase, does not close or advance Phase 4, and
 carries no vote on any default-enable decision (learning, redundancy). See
-`docs/phase-4/PHASE_4_DECISIONS.md` / `docs/phase-4/PHASE_4_READINESS.md` for the phase record.
+`docs/archive/phase-4/PHASE_4_DECISIONS.md` / `docs/archive/phase-4/PHASE_4_READINESS.md` for the phase record.
 
 ## Why this exists
 
@@ -99,7 +99,7 @@ ranking simulator), Experiments, System detail, and every mutation control
 The graph's edges come from two sources, both already part of the Brain --
 **no new relationship data is persisted**. The Brain's own Phase 1 spec
 explicitly declined a general relationship-graph model
-(`docs/phase-1/PHASE_1_SPEC.md:158`, "insufficient evidence either predecessor needed
+(`docs/archive/phase-1/PHASE_1_SPEC.md:158`, "insufficient evidence either predecessor needed
 one"); this visualizes what already exists rather than reversing that:
 
 - **Similarity edges** -- `RetrievalStore.findSimilarPairs(ids, minSimilarity)`,

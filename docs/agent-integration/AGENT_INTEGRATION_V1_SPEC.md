@@ -2,7 +2,7 @@
 
 > Provenance: pasted directly into a Claude Code session on 2026-09-05, no prior
 > written spec existed. Captured verbatim here so it travels with
-> `docs/superpowers/plans/2026-09-05-agent-integration-v1.md` the way every other
+> `docs/archive/superpowers/plans/2026-09-05-agent-integration-v1.md` the way every other
 > phase's spec travels with its plan. Not a new Blueprint phase — see the brief's
 > own first line.
 

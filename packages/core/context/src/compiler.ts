@@ -39,7 +39,7 @@ export function compileContext(rawInput: CompileContextInput): CompiledContext {
   // (as a single loop naturally would) silently assumes `a` is always
   // visited before `b` -- true when redundancy orientation was rank-only,
   // no longer true once a more scope-specific memory can anchor a
-  // better-ranked, less specific one (docs/phase-2c/PHASE_2C_PILOT_REPORT.md's real
+  // better-ranked, less specific one (docs/archive/phase-2c/PHASE_2C_PILOT_REPORT.md's real
   // finding: that exact case silently failed to demote at all).
   const survivingMemoryIds = new Set<string>();
   {

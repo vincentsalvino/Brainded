@@ -449,7 +449,7 @@ test("P2-005 ACCEPTANCE: an unknown contextId is refused over the wire, not sile
 
 // --- Phase 4.2: the critical end-to-end learning test -----------------------
 //
-// docs/phase-4/PHASE_4_SPEC.md 10 / BUILD_PLAN.md's original acceptance shape: call
+// docs/archive/phase-4/PHASE_4_SPEC.md 10 / BUILD_PLAN.md's original acceptance shape: call
 // brain_feedback for a specific memory, then brain_context/brain_recall for a
 // query it matches, and assert its ranking measurably changed -- through the
 // REAL stack (real SQLite, real recordFeedback transactional path, real

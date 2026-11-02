@@ -1,6 +1,6 @@
 # Agent Integration V1 — Final Report
 
-Executed via `docs/superpowers/plans/2026-09-05-agent-integration-v1.md`
+Executed via `docs/archive/superpowers/plans/2026-09-05-agent-integration-v1.md`
 (implements `docs/agent-integration/AGENT_INTEGRATION_V1_SPEC.md`) using
 subagent-driven development. Full task-by-task record, every ruling, and
 both review rounds: `.superpowers/sdd/2026-09-05-agent-integration-v1/progress.md`

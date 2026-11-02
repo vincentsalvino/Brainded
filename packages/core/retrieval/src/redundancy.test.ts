@@ -46,7 +46,7 @@ test("toRedundancyPairs: output stays sorted (similarity desc, then a, then b)",
 // --- 2C.1: redundancy-anchor scope preference. Rank-only orientation let a
 // higher-ranked global memory demote a lower-ranked project-specific memory
 // it is redundant with -- observed for real in the Phase 2C pilot
-// (docs/phase-2c/PHASE_2C_PILOT_REPORT.md). These fix that, without touching rank
+// (docs/archive/phase-2c/PHASE_2C_PILOT_REPORT.md). These fix that, without touching rank
 // itself (asserted directly below) or retrieval/ranking/token behavior.
 
 test("toRedundancyPairs: project vs global redundant pair -- global ranks higher, project still becomes the anchor", () => {

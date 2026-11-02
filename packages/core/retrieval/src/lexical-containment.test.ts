@@ -28,7 +28,7 @@ test("containmentCoefficient: project identifiers are not specially stripped", (
 
 // --- isNearDuplicate: Phase 2C.10 Strategy H2, defaults applied -----------
 // No unconditional cosine bypass at any cosine value -- containment must
-// always corroborate, even at cosine 0.99 (docs/phase-2c/PHASE_2C9_REPORT.md's
+// always corroborate, even at cosine 0.99 (docs/archive/phase-2c/PHASE_2C9_REPORT.md's
 // false-positive-recovery finding). This is the most important regression:
 // high cosine alone must never again be enough.
 
@@ -95,7 +95,7 @@ test("isNearDuplicate: cosine 0.7499 with perfect containment (1.0) is still dis
   assert.equal(result, false);
 });
 
-// --- 2C.10: Strategy H2 real-evidence cases (docs/phase-2c/PHASE_2C9_REPORT.md) ----
+// --- 2C.10: Strategy H2 real-evidence cases (docs/archive/phase-2c/PHASE_2C9_REPORT.md) ----
 
 test("isNearDuplicate: real 2C.8 cache-service false positive (cosine 0.8813, containment 0.3750) is now correctly distinct", () => {
   const result = isNearDuplicate({
