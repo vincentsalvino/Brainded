@@ -2,14 +2,9 @@ name: ai-brain CI
 
 on:
   push:
-    branches: [main, master]
-    paths:
-      - "ai-brain/**"
-      - ".github/workflows/ai-brain-ci.yml"
+    branches: [main, master, "codex/**", "feat/**"]
   pull_request:
-    paths:
-      - "ai-brain/**"
-      - ".github/workflows/ai-brain-ci.yml"
+  workflow_dispatch:
 
 concurrency:
   group: ai-brain-ci-${{ github.ref }}
@@ -17,10 +12,6 @@ concurrency:
 
 permissions:
   contents: read
-
-defaults:
-  run:
-    working-directory: ai-brain
 
 jobs:
   ci:
@@ -33,15 +24,11 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: ai-brain/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - run: npm ci
 
-      - run: npm run typecheck
-
-      - run: npm run build
-
-      - run: npm test
+      - run: npm run check
 
       - run: npm audit --audit-level=high
 
@@ -52,5 +39,4 @@ jobs:
       - name: storage embedding-model integration test (non-blocking)
         continue-on-error: true
         run: |
-          npm run pretest:integration --workspace=@brain/storage
           npm run test:integration --workspace=@brain/storage

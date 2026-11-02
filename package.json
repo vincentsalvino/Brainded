@@ -10,9 +10,15 @@
     "packages/core/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@brain/contracts && npm run build --workspace=@brain/storage --workspace=@brain/memory --workspace=@brain/ranking --workspace=@brain/retrieval --workspace=@brain/learning --workspace=@brain/token --workspace=@brain/context --workspace=@brain/compression --workspace=@brain/test-fixtures --workspace=@brain/evaluation --workspace=@brain/codebase && npm run build --workspace=@brain/gateway --workspace=@brain/knowledge && npm run build --workspaces --if-present",
-    "typecheck": "npm run build --workspace=@brain/contracts && npm run build --workspace=@brain/storage --workspace=@brain/memory --workspace=@brain/ranking --workspace=@brain/retrieval --workspace=@brain/learning --workspace=@brain/token --workspace=@brain/context --workspace=@brain/compression --workspace=@brain/test-fixtures --workspace=@brain/evaluation --workspace=@brain/codebase && npm run build --workspace=@brain/gateway --workspace=@brain/knowledge && npm run typecheck --workspaces --if-present",
+    "build:contracts": "npm run build --workspace=@brain/contracts",
+    "build:core": "npm run build --workspace=@brain/compression --workspace=@brain/context --workspace=@brain/learning --workspace=@brain/memory --workspace=@brain/ranking --workspace=@brain/retrieval --workspace=@brain/test-fixtures --workspace=@brain/token",
+    "build:services": "npm run build --workspace=@brain/storage --workspace=@brain/codebase --workspace=@brain/evaluation --workspace=@brain/gateway --workspace=@brain/knowledge",
+    "build:dependencies": "npm run build:contracts && npm run build:core && npm run build:services",
+    "build": "npm run build:dependencies && npm run build --workspace=@brain/mcp --workspace=@brain/visualizer",
+    "typecheck": "npm run build:dependencies && npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "check": "npm run build && npm run typecheck --workspaces --if-present && npm test",
+    "mcp": "node packages/mcp/dist/server.js data/brain.db",
     "visualizer": "npm run dev --workspace=@brain/visualizer",
     "dev": "npm run dev --workspace=@brain/visualizer"
   },
