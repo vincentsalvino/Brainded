@@ -5,6 +5,7 @@ import { EmptyState } from "../components/EmptyState";
 import { GraphCanvas, type TraceState } from "../components/GraphCanvas";
 import { MemoryInspector } from "../components/MemoryInspector";
 import { Skeleton } from "../components/Skeleton";
+import { MEMORY_TYPE_COLORS } from "../memory-type-colors";
 
 interface BrainMapPageProps {
   activeContextId: string | null;
@@ -37,6 +38,7 @@ export function BrainMapPage({
   );
 
   const nodesById = useMemo(() => new Map((graph?.nodes ?? []).map((n) => [n.id, n])), [graph]);
+  const visibleTypes = useMemo(() => [...new Set((graph?.nodes ?? []).map((node) => node.type))].sort(), [graph]);
 
   const traceHighlight = useMemo(() => {
     if (!contextDetail) return null;
@@ -65,61 +67,81 @@ export function BrainMapPage({
         </span>
       )}
 
-      <div className="brain-map-toolbar">
-        <input
-          type="text"
-          className="mono"
-          placeholder="Search memories..."
-          value={searchQuery}
-          onChange={(e) => onSearchQueryChange(e.target.value)}
-        />
-        {graph ? (
-          <span className="meta mono">
-            {graph.meta.totalMemories} memories · {graph.meta.totalEdges} relationships · threshold {graph.meta.threshold}
-          </span>
-        ) : (
-          <Skeleton width={280} height={14} />
-        )}
-        {activeContextId && contextDetail && (
-          <span className="badge included mono">
-            Context Trace: task {contextDetail.context.taskId ?? "(none)"} · {contextDetail.context.timestamp}
-            {contextDetail.outcomes.length > 0 && ` · ${contextDetail.outcomes.map((o) => o.outcome).join(", ")}`}
-            <button type="button" onClick={onClearContext} style={{ marginLeft: 6 }}>
-              back to full graph
-            </button>
-          </span>
-        )}
+      <div className="brain-map-header">
+        <div className="brain-map-title">
+          <h1>Memory map</h1>
+          {graph ? (
+            <span className="graph-summary">
+              {graph.meta.totalMemories} memories · {graph.meta.totalEdges} relationships
+            </span>
+          ) : (
+            <Skeleton width={172} height={12} />
+          )}
+        </div>
+        <div className="brain-map-search">
+          <input
+            type="search"
+            aria-label="Search memories"
+            placeholder="Search memories..."
+            value={searchQuery}
+            onChange={(e) => onSearchQueryChange(e.target.value)}
+          />
+          {matchedIds && (
+            <span className="search-results" role="status">
+              {matchedIds.size} {matchedIds.size === 1 ? "match" : "matches"}
+            </span>
+          )}
+        </div>
       </div>
 
-      {!graph ? (
-        <div className="brain-map-body">
-          <div className="brain-map-canvas">
-            <Skeleton width="100%" height="100%" />
-          </div>
-        </div>
-      ) : graph.nodes.length === 0 ? (
+      {activeContextId && contextDetail && (
+        <span className="context-trace badge included">
+          Context Trace: task {contextDetail.context.taskId ?? "(none)"} · {contextDetail.context.timestamp}
+          {contextDetail.outcomes.length > 0 && ` · ${contextDetail.outcomes.map((o) => o.outcome).join(", ")}`}
+          <button type="button" onClick={onClearContext}>Back to full graph</button>
+        </span>
+      )}
+
+      {graph?.nodes.length === 0 ? (
         <EmptyState message="No memories indexed yet." />
       ) : (
-        <div className="brain-map-body">
-          <div className="brain-map-canvas">
-            <GraphCanvas
-              nodes={graph.nodes}
-              similarityEdges={graph.similarityEdges}
-              supersedesEdges={graph.supersedesEdges}
-              selectedMemoryId={selectedMemoryId}
-              onSelectMemory={onSelectMemory}
-              traceHighlight={traceHighlight}
-              matchedIds={matchedIds}
-            />
+        <div className="brain-map-frame">
+          <div className="brain-map-body">
+            {graph ? (
+              <GraphCanvas
+                nodes={graph.nodes}
+                similarityEdges={graph.similarityEdges}
+                supersedesEdges={graph.supersedesEdges}
+                selectedMemoryId={selectedMemoryId}
+                onSelectMemory={onSelectMemory}
+                traceHighlight={traceHighlight}
+                matchedIds={matchedIds}
+              />
+            ) : (
+              <Skeleton width="100%" height="100%" />
+            )}
+            {graph && selectedMemoryId && (
+              <MemoryInspector
+                id={selectedMemoryId}
+                nodesById={nodesById}
+                onClose={() => onSelectMemory(null)}
+                onSelectNeighbor={onSelectMemory}
+                contextTrace={activeContextId ? contextDetail : null}
+              />
+            )}
           </div>
-          {selectedMemoryId && (
-            <MemoryInspector
-              id={selectedMemoryId}
-              nodesById={nodesById}
-              onClose={() => onSelectMemory(null)}
-              onSelectNeighbor={onSelectMemory}
-              contextTrace={activeContextId ? contextDetail : null}
-            />
+          {graph && (
+            <div className="graph-caption">
+              <div className="graph-legend" aria-label="Memory types">
+                {visibleTypes.map((type) => (
+                  <span key={type}><i style={{ backgroundColor: MEMORY_TYPE_COLORS[type] }} />{type.replaceAll("_", " ")}</span>
+                ))}
+              </div>
+              <div className="graph-legend" aria-label="Relationships">
+                <span className="relationship-key"><i />Similarity</span>
+                {graph.supersedesEdges.length > 0 && <span className="relationship-key supersedes"><i />Supersedes</span>}
+              </div>
+            </div>
           )}
         </div>
       )}

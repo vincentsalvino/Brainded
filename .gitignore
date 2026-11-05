@@ -23,6 +23,8 @@ coverage/
 /.superpowers/
 /.claude/
 /.codex/
+/.validation/
+/.release/
 
 # Operating-system and editor files
 .DS_Store

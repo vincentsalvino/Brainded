@@ -67,7 +67,7 @@ test("the back-to-full-graph pill button also clears trace mode", async () => {
   fireEvent.click(screen.getByText("Contexts"));
   const row = await waitFor(() => screen.getByText(contextListFixture.items[0]!.taskId!));
   fireEvent.click(row.closest(".row-item")!);
-  const backButton = await waitFor(() => screen.getByText("back to full graph"));
+  const backButton = await screen.findByRole("button", { name: /back to full graph/i });
   fireEvent.click(backButton);
   await waitFor(() => expect(screen.queryByText(/Context Trace/)).toBeNull());
 });

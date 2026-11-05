@@ -32,6 +32,11 @@ test("cross-client: a memory written by one process is retrievable by a second, 
     const clientA = await connectViaProcess(dbPath);
     let created: { id: string };
     try {
+      const instructions = clientA.client.getInstructions() ?? "";
+      assert.match(instructions, /brain_context before implementation/);
+      assert.match(instructions, /brain_feedback once with taskId, contextId, and memoryId/);
+      assert.match(instructions, /brain_record_outcome with the same taskId and contextId/);
+      assert.match(instructions, /Leave uncertain items unlabeled/);
       created = parsed(
         (await clientA.client.callTool({
           name: "brain_remember",

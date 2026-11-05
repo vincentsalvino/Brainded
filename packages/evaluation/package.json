@@ -12,9 +12,10 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "tsc -p tsconfig.test.json",
-    "test": "node --test \"dist-test/metrics.test.js\" \"dist-test/gate.test.js\" \"dist-test/efficiency.test.js\" \"dist-test/export.test.js\" \"dist-test/redundancy-gate.test.js\" \"dist-test/classification-metrics.test.js\" \"dist-test/hybrid-classifier-regression.test.js\" \"dist-test/h2-full-corroboration-regression.test.js\" \"dist-test/code-retrieval-evaluation.test.js\" \"dist-test/dependency-graph-evaluation.test.js\" \"dist-test/coding-context-evaluation.test.js\" \"dist-test/source-calibration.test.js\" \"dist-test/learning-ranking-fixture.test.js\" \"dist-test/historical-replay.test.js\" \"dist-test/pilot-harness.test.js\" \"dist-test/db-isolation-boundary.test.js\"",
+    "test": "node --test \"dist-test/metrics.test.js\" \"dist-test/gate.test.js\" \"dist-test/efficiency.test.js\" \"dist-test/export.test.js\" \"dist-test/redundancy-gate.test.js\" \"dist-test/classification-metrics.test.js\" \"dist-test/hybrid-classifier-regression.test.js\" \"dist-test/h2-full-corroboration-regression.test.js\" \"dist-test/code-retrieval-evaluation.test.js\" \"dist-test/dependency-graph-evaluation.test.js\" \"dist-test/coding-context-evaluation.test.js\" \"dist-test/source-calibration.test.js\" \"dist-test/learning-ranking-fixture.test.js\" \"dist-test/historical-replay.test.js\" \"dist-test/pilot-harness.test.js\" \"dist-test/db-isolation-boundary.test.js\" && node --test --test-isolation=none validation/evidence.test.mjs validation/isolation.test.mjs",
     "pretest:integration": "tsc -p tsconfig.test.json",
-    "test:integration": "node --test \"dist-test/redundancy-benchmark.test.js\" \"dist-test/redundancy-boundary.test.js\" \"dist-test/code-self-repository.test.js\" \"dist-test/dependency-self-repository.test.js\" \"dist-test/coding-context-self-repository.test.js\" \"dist-test/historical-replay-real-corpus.test.js\""
+    "test:integration": "node --test \"dist-test/redundancy-benchmark.test.js\" \"dist-test/redundancy-boundary.test.js\" \"dist-test/code-self-repository.test.js\" \"dist-test/dependency-self-repository.test.js\" \"dist-test/coding-context-self-repository.test.js\" \"dist-test/historical-replay-real-corpus.test.js\"",
+    "validate:device": "node validation/run.mjs"
   },
   "dependencies": {
     "@brain/contracts": "0.1.0",

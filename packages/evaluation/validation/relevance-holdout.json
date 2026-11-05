@@ -1,0 +1,22 @@
+[
+  {"id":"private-notes","task":"Can a near-identical result reveal another team's private notes?","labels":{"scope":2}},
+  {"id":"copy-while-writing","task":"Take a consistent copy of a running database while writers continue committing changes.","labels":{"wal":2}},
+  {"id":"tie-result-to-pack","task":"Which identifier links the final success report to the exact pack the agent received?","labels":{"outcome":2}},
+  {"id":"missing-task-counts","task":"Can the dashboard measure jobs that never called this service?","labels":{"coverage":2}},
+  {"id":"future-feedback","task":"Can later feedback influence earlier results during a historical replay?","labels":{"learning":2}},
+  {"id":"one-allowance","task":"Do code snippets and saved guidance compete for the same context allowance?","labels":{"budget":2}},
+  {"id":"transport-boundary","task":"Which layer should coordinate searches and ranking instead of the transport handler?","labels":{"adapter":2}},
+  {"id":"soft-removal","task":"Keep the audit history when removing an obsolete memory from search results.","labels":{"archive":2}},
+  {"id":"paired-write","task":"Will a failed audit insert also roll back the memory write?","labels":{"mutation":2}},
+  {"id":"vectors-down","task":"Can keyword lookup keep working when the vector engine is down?","labels":{"degrade":2}},
+  {"id":"confidence-vs-query","task":"Can a highly trusted note outrank a stronger match for this particular query?","labels":{"confidence":2}},
+  {"id":"scratch-policy","task":"Should a temporary theory from an unfinished investigation be saved for future agents?","labels":{"capture":2}},
+  {"id":"bread","task":"How do I make sourdough bread with rye flour?","labels":{}},
+  {"id":"bicycle","task":"What should I check when a bicycle chain skips uphill?","labels":{}},
+  {"id":"piano","task":"How can I practice a difficult piano passage slowly?","labels":{}},
+  {"id":"koi","task":"Which aquatic plants are best for a koi pond?","labels":{}},
+  {"id":"telescope","task":"Where can I see Jupiter through a backyard telescope?","labels":{}},
+  {"id":"shoes","task":"Can I wash suede shoes in a washing machine?","labels":{}},
+  {"id":"fabric","task":"How do I remove candle wax from cotton fabric?","labels":{}},
+  {"id":"juggling","task":"What is a good first exercise for learning to juggle?","labels":{}}
+]

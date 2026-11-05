@@ -1,6 +1,6 @@
 import { openDatabase } from "@brain/storage";
 import { SqliteMemoryRepository } from "@brain/storage";
-import { SqliteRetrievalStore } from "@brain/storage";
+import { DEFAULT_MEMORY_RELEVANCE, SqliteRetrievalStore } from "@brain/storage";
 import { SqliteEventStore } from "@brain/storage";
 import { SqliteMemoryPerformanceStore } from "@brain/storage";
 import { LocalEmbeddingProvider } from "@brain/storage";
@@ -29,12 +29,12 @@ export interface Brain {
   close(): void;
 }
 
-export function createBrain(dbPath: string): Brain {
+export function createBrain(dbPath: string, options: { localFilesOnly?: boolean; cacheDir?: string } = {}): Brain {
   const db = openDatabase(dbPath);
-  const embeddings = new LocalEmbeddingProvider();
+  const embeddings = new LocalEmbeddingProvider(options);
 
   const memoryRepository = new SqliteMemoryRepository(db.raw, embeddings);
-  const retrievalStore = new SqliteRetrievalStore(db.raw, embeddings, db.vectorSearchAvailable);
+  const retrievalStore = new SqliteRetrievalStore(db.raw, embeddings, db.vectorSearchAvailable, DEFAULT_MEMORY_RELEVANCE);
   const eventStore = new SqliteEventStore(db.raw);
   const codebaseRepository = new SqliteCodebaseRepository(db.raw);
   const codeSearchStore = new SqliteCodeSearchStore(db.raw, embeddings, db.vectorSearchAvailable);

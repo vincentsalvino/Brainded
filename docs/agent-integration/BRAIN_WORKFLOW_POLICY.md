@@ -37,9 +37,10 @@ here changes it.
 
 Before declaring the task done:
 1. Keep the exact `contextId` from preflight.
-2. Record `brain_feedback` where usefulness is actually clear -- selective,
-   not exhaustive. Skipping a memory whose usefulness is genuinely unclear is
-   correct, not a gap.
+2. Review each delivered memory against the work you did. Record one
+   `brain_feedback` for every clear judgment, including plainly irrelevant
+   results. Link the original `taskId`, `contextId`, and `memoryId`. Leave an
+   uncertain item unlabeled. A successful task alone cannot establish usefulness.
 3. Record `brain_record_outcome` with that `contextId` and the task's
    `taskId`. Required whenever a context was used.
 4. Consider whether anything genuinely new and durable surfaced.
@@ -74,6 +75,11 @@ lower-bound reading of adherence, never a total:
   context was delivered. Low feedback coverage is expected -- feedback is
   selective by design. Low outcome coverage on tasks that did pull a context
   is the real signal.
+
+Item-level feedback coverage counts distinct judged delivery-memory pairs
+over all delivered memory items. The useful rate divides useful judgments by
+judged items only. Track both together and review a sample of unlabeled
+deliveries before interpreting a change in the useful rate.
 
 Source: `EventStore.getWorkflowAdherence()`
 (`packages/storage/src/event-store.ts`).

@@ -1,5 +1,5 @@
 import { test, expect, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, screen } from "@testing-library/react";
 import { GraphCanvas } from "./GraphCanvas";
 import { GRAPH_WIDTH, GRAPH_HEIGHT } from "../use-force-layout";
 import { memoryGraphFixture, emptyMemoryGraphFixture } from "../fixtures/graph.fixture";
@@ -51,7 +51,7 @@ test("clicking a node (pointerdown+pointerup, no movement) calls onSelectMemory 
   expect(onSelectMemory).toHaveBeenCalledWith(memoryGraphFixture.nodes[0]!.id);
 });
 
-test("the selected node's circle gets a visible stroke; others do not", () => {
+test("the selected node's circle gets a distinct stroke; others keep a separating outline", () => {
   const selectedId = memoryGraphFixture.nodes[0]!.id;
   const { container } = render(
     <GraphCanvas
@@ -64,7 +64,7 @@ test("the selected node's circle gets a visible stroke; others do not", () => {
   );
   const circles = container.querySelectorAll("circle");
   expect(circles[0]!.getAttribute("stroke-width")).toBe("2.5");
-  expect(circles[1]!.getAttribute("stroke-width")).toBe("0");
+  expect(circles[1]!.getAttribute("stroke-width")).toBe("1.25");
 });
 
 test("selecting a node highlights only the lines connected to it, and dims the rest", () => {
@@ -83,8 +83,8 @@ test("selecting a node highlights only the lines connected to it, and dims the r
   expect(lines[0]!.getAttribute("opacity")).toBe("1");
   expect(lines[2]!.getAttribute("stroke")).toBe("var(--accent)");
   expect(lines[2]!.getAttribute("opacity")).toBe("1");
-  expect(lines[1]!.getAttribute("opacity")).toBe("0.15");
-  expect(lines[3]!.getAttribute("opacity")).toBe("0.15");
+  expect(lines[1]!.getAttribute("opacity")).toBe("0.35");
+  expect(lines[3]!.getAttribute("opacity")).toBe("0.35");
 });
 
 test("no selection: no line is highlighted or dimmed", () => {
@@ -297,4 +297,55 @@ test("supersedes edges render dashed, distinct from similarity edges", () => {
   const lines = container.querySelectorAll("line");
   const dashed = [...lines].filter((l) => l.getAttribute("stroke-dasharray"));
   expect(dashed.length).toBe(memoryGraphFixture.supersedesEdges.length);
+});
+
+test("view controls zoom and recover every node after panning away", () => {
+  const { container } = render(
+    <GraphCanvas {...memoryGraphFixture} selectedMemoryId={null} onSelectMemory={() => {}} />,
+  );
+  const svg = container.querySelector("svg")!;
+  mockSvgRect(svg);
+  const viewport = container.querySelector("g")!;
+  fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+  expect(viewport.getAttribute("transform")).toContain("scale(1.15)");
+  fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+  expect(viewport.getAttribute("transform")).toContain("scale(1)");
+
+  const background = container.querySelector("rect")!;
+  firePointer(background, "pointerdown", { clientX: 0, clientY: 0 });
+  firePointer(background, "pointermove", { clientX: 2000, clientY: 2000 });
+  firePointer(background, "pointerup");
+  fireEvent.click(screen.getByRole("button", { name: "Fit view" }));
+  const transform = viewport.getAttribute("transform")!;
+  const [, x, y, k] = transform.match(/translate\(([-\d.e]+) ([-\d.e]+)\) scale\(([-\d.e]+)\)/)!;
+  for (const circle of container.querySelectorAll("circle")) {
+    const cx = Number(circle.getAttribute("cx")) * Number(k) + Number(x);
+    const cy = Number(circle.getAttribute("cy")) * Number(k) + Number(y);
+    expect(cx).toBeGreaterThan(0);
+    expect(cx).toBeLessThan(GRAPH_WIDTH);
+    expect(cy).toBeGreaterThan(0);
+    expect(cy).toBeLessThan(GRAPH_HEIGHT);
+  }
+});
+
+test("pan uses the SVG's uniform scale on a wide canvas", () => {
+  const { container } = render(
+    <GraphCanvas {...memoryGraphFixture} selectedMemoryId={null} onSelectMemory={() => {}} />,
+  );
+  const svg = container.querySelector("svg")!;
+  vi.spyOn(svg, "getBoundingClientRect").mockReturnValue({ width: 1400, height: 700, left: 0, top: 0 } as DOMRect);
+  const background = container.querySelector("rect")!;
+  firePointer(background, "pointerdown", { clientX: 300, clientY: 100 });
+  firePointer(background, "pointermove", { clientX: 350, clientY: 130 });
+  firePointer(background, "pointerup");
+  expect(container.querySelector("g")!.getAttribute("transform")).toBe("translate(50 30) scale(1)");
+});
+
+test("nodes can be selected from the keyboard", () => {
+  const onSelectMemory = vi.fn();
+  const { container } = render(
+    <GraphCanvas {...memoryGraphFixture} selectedMemoryId={null} onSelectMemory={onSelectMemory} />,
+  );
+  fireEvent.keyDown(container.querySelector("circle")!, { key: "Enter" });
+  expect(onSelectMemory).toHaveBeenCalledWith(memoryGraphFixture.nodes[0]!.id);
 });

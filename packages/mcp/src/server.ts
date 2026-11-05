@@ -17,6 +17,14 @@ import {
   projectShape,
 } from "./schemas.js";
 
+const workflowInstructions = [
+  "For substantive project work, call brain_context before implementation with a stable taskId, the exact project scope, and a bounded maxTokens. Skip preflight for trivial work.",
+  "Keep the returned contextId and use delivered memories as leads. Verify them against current sources and user instructions.",
+  "Before the final response, review the memories actually delivered. For each clear judgment, call brain_feedback once with taskId, contextId, and memoryId. Mark verified reuse useful, and give a reason for clear negative feedback. Leave uncertain items unlabeled.",
+  "Call brain_record_outcome with the same taskId and contextId, the actual outcome, and only verified signals. Save new memories only when they capture durable knowledge in the narrowest correct scope.",
+  "If Brain is unavailable, continue the task and report the bypass once. If a context response has no contextId, report the attribution gap and do not invent one.",
+].join("\n");
+
 /**
  * The SDK parses each optional shape field as `T | undefined` (key always
  * present); Gateway's request types use `key?: T` (key must be absent, not
@@ -57,7 +65,7 @@ export function registerBrainTools(server: McpServer, gateway: Gateway): void {
         "Compile a budget-enforced, ranked context pack for a task: retrieval -> ranking -> context compilation -> token optimization. " +
         "When the project has indexed code, relevant source chunks and bounded dependency context are automatically blended into the same budget (see codeItems/dependencyItems on the response) -- no separate call needed. " +
         "Returns a contextId naming this exact delivery -- pass it back to brain_feedback and brain_record_outcome so the Brain can tell which delivery your report refers to. " +
-        "Optionally pass taskId to group several deliveries under one logical task.",
+        "For substantive work, call before implementation and supply a stable taskId and the exact project scope. Review delivered memories and record the actual outcome before finishing.",
       inputSchema: getContextShape,
     },
     async (args): Promise<CallToolResult> => {
@@ -148,7 +156,7 @@ export function registerBrainTools(server: McpServer, gateway: Gateway): void {
     "brain_feedback",
     {
       description:
-        "Report whether a specific memory was useful. Pass the contextId returned by brain_context to attribute this to that exact delivery; " +
+        "Report a clear usefulness judgment on a delivered memory. Send the original taskId and contextId. Submit once per delivery and memory, and leave uncertain items unlabeled. " +
         "pass reason (redundant | irrelevant | incorrect | other) to say why -- 'redundant' means the memory was fine but duplicated another, which is not the same as wrong.",
       inputSchema: feedbackShape,
     },
@@ -222,12 +230,11 @@ function toolError(error: unknown): CallToolResult {
 }
 
 /** Standalone entry point: `node dist/server.js <db-path>`. Not invoked by tests, which construct their own McpServer + in-memory Brain directly. */
-export async function main(): Promise<void> {
+export async function main(dbPath = process.argv[2] ?? "./brain.db", options?: { cacheDir?: string; localFilesOnly?: boolean }): Promise<void> {
   const { createBrain } = await import("./bootstrap.js");
-  const dbPath = process.argv[2] ?? "./brain.db";
-  const brain = createBrain(dbPath);
+  const brain = createBrain(dbPath, options);
 
-  const server = new McpServer({ name: "ai-brain", version: "0.1.0" });
+  const server = new McpServer({ name: "ai-brain", version: "0.1.0" }, { instructions: workflowInstructions });
   registerBrainTools(server, brain.gateway);
 
   const transport = new StdioServerTransport();

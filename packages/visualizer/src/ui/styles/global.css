@@ -39,6 +39,17 @@ button:hover {
   background: var(--surface-2);
 }
 
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.meta {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 table {
   border-collapse: collapse;
   width: 100%;
@@ -46,18 +57,18 @@ table {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 200px 1fr;
-  grid-template-rows: 44px 1fr 28px;
+  grid-template-columns: 120px minmax(0, 1fr);
+  grid-template-rows: 44px minmax(0, 1fr) 26px;
   grid-template-areas:
     "topbar topbar"
     "sidebar main"
     "footer footer";
-  height: 100vh;
+  height: 100dvh;
   transition: grid-template-columns 0.15s ease;
 }
 
 .app-shell.sidebar-collapsed {
-  grid-template-columns: 40px 1fr;
+  grid-template-columns: 48px minmax(0, 1fr);
 }
 
 .topbar {
@@ -66,13 +77,24 @@ table {
   align-items: center;
   gap: var(--space-4);
   padding: 0 var(--space-4);
-  background: var(--surface-1);
+  background: var(--surface-0);
   border-bottom: 1px solid var(--border);
 }
 
 .topbar-name {
   font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 15px;
+  letter-spacing: -0.025em;
+}
+
+.topbar-label {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.topbar-project {
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--border);
 }
 
 .topbar-scope {
@@ -81,17 +103,22 @@ table {
 
 .sidebar {
   grid-area: sidebar;
-  background: var(--surface-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  background: var(--surface-0);
   border-right: 1px solid var(--border);
-  padding: var(--space-3) 0;
+  padding: var(--space-2);
   overflow: hidden;
 }
 
 .sidebar-toggle {
   display: block;
-  width: calc(100% - var(--space-4));
-  margin: 0 var(--space-2) var(--space-3);
-  text-align: center;
+  width: 32px;
+  height: 28px;
+  margin-top: auto;
+  align-self: end;
+  border-color: transparent;
   color: var(--text-secondary);
 }
 
@@ -104,10 +131,9 @@ table {
   display: block;
   width: 100%;
   text-align: left;
-  padding: var(--space-2) var(--space-4);
+  padding: 6px var(--space-3);
   border: none;
-  border-radius: 0;
-  border-left: 2px solid transparent;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -118,15 +144,16 @@ table {
 }
 
 .sidebar-link.active {
-  color: var(--text-primary);
-  border-left-color: var(--accent);
+  color: var(--accent);
   background: var(--surface-2);
+  font-weight: 600;
 }
 
 .main {
   grid-area: main;
   overflow-y: auto;
-  padding: var(--space-5);
+  min-width: 0;
+  padding: var(--space-4);
 }
 
 .footer {
@@ -135,7 +162,7 @@ table {
   align-items: center;
   gap: var(--space-4);
   padding: 0 var(--space-4);
-  background: var(--surface-1);
+  background: var(--surface-0);
   border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 11px;
@@ -172,9 +199,7 @@ table {
   border-bottom: 1px solid var(--border);
   font-weight: 600;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: 12px;
 }
 
 .panel-body {
@@ -190,7 +215,6 @@ table {
 
 .stat-card {
   background: var(--surface-1);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: var(--space-3) var(--space-4);
 }
@@ -204,15 +228,11 @@ table {
 .stat-label {
   color: var(--text-secondary);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   margin-top: var(--space-1);
 }
 
 .section-title {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 13px;
   color: var(--text-secondary);
   margin: 0 0 var(--space-3) 0;
 }
@@ -345,22 +365,76 @@ table {
   display: flex;
   flex-direction: column;
   height: 100%;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  min-height: 360px;
 }
 
-.brain-map-toolbar {
+.brain-map-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.brain-map-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+
+.brain-map-title h1 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.brain-map-search {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.brain-map-toolbar input {
+.brain-map-search input {
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  padding: var(--space-1) var(--space-2);
-  min-width: 220px;
+  padding: 7px var(--space-3);
+  width: 184px;
+  min-width: 0;
+  max-width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.brain-map-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-results {
+  font-size: 11px;
+  color: var(--warning);
+  white-space: nowrap;
+}
+
+.graph-summary {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.context-trace {
+  overflow-wrap: anywhere;
+  align-self: flex-start;
+}
+
+.context-trace button {
+  margin-left: var(--space-2);
+  padding: 2px 6px;
 }
 
 .brain-map-body {
@@ -369,25 +443,112 @@ table {
   min-height: 0;
 }
 
-.brain-map-canvas {
+.brain-map-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-  width: 100%;
+}
+
+.graph-stage {
+  position: relative;
   height: 100%;
+}
+
+.memory-graph {
+  touch-action: none;
+}
+
+.graph-node:focus-visible {
+  outline: none;
+  stroke: var(--accent);
+  stroke-width: 3px;
+}
+
+.graph-controls {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  gap: 2px;
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.graph-controls button {
+  border: none;
+  min-width: 32px;
+  min-height: 32px;
+  font-size: 18px;
+}
+
+.graph-controls .graph-fit {
+  font-size: 12px;
+  padding: 0 var(--space-3);
+}
+
+.graph-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding: 6px var(--space-3);
+  border-top: 1px solid var(--border);
+  background: var(--surface-0);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
+.graph-legend span,
+.relationship-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-legend i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.relationship-key i {
+  width: 18px;
+  height: 0;
+  border-radius: 0;
+  border-top: 1.5px solid var(--graph-edge);
+}
+
+.relationship-key.supersedes i {
+  border-top-style: dashed;
+  border-color: var(--warning);
 }
 
 /* Floats over the graph rather than sharing a grid column with it -- the
    canvas never resizes when this opens or closes. */
 .inspector {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 320px;
+  top: var(--space-2);
+  right: var(--space-2);
+  bottom: var(--space-2);
+  width: min(360px, calc(100% - 16px));
   overflow-y: auto;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
   z-index: 5;
   animation: inspector-in 0.15s ease;
 }
@@ -431,4 +592,59 @@ table {
   color: var(--text-primary);
   background: none;
   border: none;
+}
+
+@media (max-width: 600px) {
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 44px auto minmax(0, 1fr) 26px;
+    grid-template-areas: "topbar" "sidebar" "main" "footer";
+  }
+
+  .topbar-project,
+  .footer > span:last-child {
+    display: none;
+  }
+
+  .sidebar {
+    flex-direction: row;
+    align-items: center;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: var(--space-1) var(--space-3);
+  }
+
+  .sidebar-link {
+    width: auto;
+  }
+
+  .sidebar-toggle {
+    margin: 0 0 0 auto;
+    align-self: auto;
+  }
+
+  .brain-map-search {
+    width: 100%;
+  }
+
+  .brain-map-search input {
+    width: 100%;
+  }
+
+  .main {
+    padding: var(--space-3);
+  }
+
+  .footer {
+    gap: var(--space-2);
+    padding: 0 var(--space-2);
+    font-size: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell {
+    transition: none;
+  }
 }
