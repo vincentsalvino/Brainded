@@ -19,7 +19,8 @@
   "dependencies": {
     "@brain/contracts": "0.1.0",
     "@brain/memory": "0.1.0",
-    "yaml": "^2.6.0"
+    "yaml": "^2.6.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@brain/test-fixtures": "0.1.0"

@@ -23,6 +23,10 @@ Use `npm run check` before committing. CI runs the same command on a clean
 checkout, then audits dependencies. Update `package-lock.json` whenever changing
 dependencies and install reproducibly with `npm ci`.
 
+Integrate changes on `develop`. CI runs on pushes to `develop` and on pull
+requests targeting `develop` or `main`. Open a pull request from `develop` to
+`main` and merge it manually after the build, tests, and dependency audit pass.
+
 ## Package boundaries
 
 - Keep public types and repository interfaces in `packages/core/contracts`.

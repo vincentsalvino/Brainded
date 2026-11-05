@@ -3,7 +3,7 @@ import { scopeIncludes, ScopeRefSchema, MEMORY_TYPES } from '@brain/contracts';
 import { precisionAtK, recallAtK, ndcgAtK, mean } from '../dist/metrics.js';
 
 const memory = z.object({ key: z.string().min(1), content: z.string().min(1), type: z.enum(MEMORY_TYPES), scope: ScopeRefSchema, sourceRef: z.string().min(1) }).strict();
-const query = z.object({ id: z.string().min(1), task: z.string().min(1), scope: ScopeRefSchema, labels: z.record(z.union([z.literal(0), z.literal(1), z.literal(2)])) }).strict();
+const query = z.object({ id: z.string().min(1), task: z.string().min(1), scope: ScopeRefSchema, labels: z.record(z.string(), z.union([z.literal(0), z.literal(1), z.literal(2)])) }).strict();
 export function parseGolden(value) {
   const data = z.object({ version: z.literal(1), provenance: z.string(), memories: z.array(memory).min(1), cases: z.array(query).min(1) }).strict().parse(value);
   for (const [rows, label] of [[data.memories, 'memory'], [data.cases, 'case']]) {

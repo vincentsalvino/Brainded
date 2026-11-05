@@ -2,8 +2,9 @@ name: ai-brain CI
 
 on:
   push:
-    branches: [main, master, "codex/**", "feat/**"]
+    branches: [develop, main]
   pull_request:
+    branches: [develop, main]
   workflow_dispatch:
 
 concurrency:
