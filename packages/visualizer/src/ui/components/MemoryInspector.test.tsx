@@ -20,24 +20,42 @@ test("renders content, metadata, and confidence", async () => {
 test("confidence and usefulnessSignal render as visually separate, labeled blocks -- never merged", async () => {
   vi.spyOn(api, "getMemoryDetail").mockResolvedValue(memoryDetailFixture);
   render(<MemoryInspector id="m1" nodesById={nodesById} onClose={() => {}} onSelectNeighbor={() => {}} />);
-  await waitFor(() => screen.getByText(/DERIVED \/ EXPERIMENTAL/));
-  expect(screen.getByText("0.640")).toBeTruthy(); // usefulnessSignal, distinct element from confidence's "0.80"
-  expect(screen.getByText("0.80")).toBeTruthy();
+  expect(await screen.findByText("0.80")).toBeTruthy();
+  expect(screen.queryByText("0.640")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+  expect(screen.getByText("0.640")).toBeTruthy();
+  expect(screen.queryByText("0.80")).toBeNull();
 });
 
 test("cold start (no performance row) shows an honest empty state, not a fabricated zero", async () => {
   vi.spyOn(api, "getMemoryDetail").mockResolvedValue(coldStartMemoryDetailFixture);
   render(<MemoryInspector id="m4" nodesById={nodesById} onClose={() => {}} onSelectNeighbor={() => {}} />);
-  await waitFor(() => screen.getByText(/No usefulness evidence yet/));
+  fireEvent.click(await screen.findByRole("button", { name: "Activity" }));
+  expect(screen.getByText(/No usefulness evidence yet/)).toBeTruthy();
 });
 
 test("clicking a neighbor row calls onSelectNeighbor with the OTHER side of the pair", async () => {
   vi.spyOn(api, "getMemoryDetail").mockResolvedValue(memoryDetailFixture);
   const onSelectNeighbor = vi.fn();
   render(<MemoryInspector id="m1" nodesById={nodesById} onClose={() => {}} onSelectNeighbor={onSelectNeighbor} />);
-  const row = await waitFor(() => screen.getByText(/similarity 0.62/));
-  fireEvent.click(row.closest(".row-item")!);
+  fireEvent.click(await screen.findByRole("button", { name: "Related" }));
+  const filter = screen.getByLabelText("Related memory type");
+  fireEvent.change(filter, { target: { value: "rule" } });
+  expect(screen.queryByText(/similarity 0.65/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /similarity 0.62/ }));
   expect(onSelectNeighbor).toHaveBeenCalledWith("m2");
+});
+
+test("long memory content starts as a preview and expands without losing the stored text", async () => {
+  const content = "A long memory with a record attached. ".repeat(25) + "END-OF-MEMORY";
+  vi.spyOn(api, "getMemoryDetail").mockResolvedValue({
+    ...memoryDetailFixture, memory: { ...memoryDetailFixture.memory, content },
+  });
+  render(<MemoryInspector id="m1" nodesById={nodesById} onClose={() => {}} onSelectNeighbor={() => {}} />);
+  const expand = await screen.findByRole("button", { name: "Read full memory" });
+  expect(screen.queryByText(/END-OF-MEMORY/)).toBeNull();
+  fireEvent.click(expand);
+  expect(screen.getByText(content)).toBeTruthy();
 });
 
 test("shows a skeleton placeholder in the panel while loading, announced to screen readers", () => {
@@ -62,4 +80,17 @@ test("close button calls onClose", async () => {
   await waitFor(() => screen.getByText(memoryDetailFixture.memory.content));
   fireEvent.click(screen.getByLabelText("Close inspector"));
   expect(onClose).toHaveBeenCalled();
+});
+
+test("the inspector edge snaps open and shut without discarding the selected section", async () => {
+  vi.spyOn(api, "getMemoryDetail").mockResolvedValue(memoryDetailFixture);
+  render(<MemoryInspector id="m1" nodesById={nodesById} onClose={() => {}} onSelectNeighbor={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Activity" }));
+  const edge = screen.getByRole("separator", { name: "Resize memory inspector" });
+  fireEvent.keyDown(edge, { key: "Home" });
+  expect(edge.getAttribute("aria-valuetext")).toBe("collapsed");
+  expect(screen.queryByRole("heading", { name: "Delivery & feedback" })).toBeNull();
+  fireEvent.keyDown(edge, { key: "End" });
+  expect(edge.getAttribute("aria-valuetext")).toBe("wide");
+  expect(screen.getByRole("heading", { name: "Delivery & feedback" })).toBeTruthy();
 });

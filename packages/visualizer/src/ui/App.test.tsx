@@ -28,8 +28,7 @@ test("Contexts nav shows the context list; selecting a row returns to the map in
   stubApi();
   render(<App />);
   fireEvent.click(screen.getByText("Contexts"));
-  const row = await waitFor(() => screen.getByText(contextListFixture.items[0]!.taskId!));
-  fireEvent.click(row.closest(".row-item")!);
+  fireEvent.click(await screen.findByRole("button", { name: /task-42.*open trace/i }));
 
   await waitFor(() => screen.getByText(/Context Trace/));
 });
@@ -40,8 +39,7 @@ test("Escape clears the topmost overlay first (memory selection), a second Escap
 
   // Enter trace mode.
   fireEvent.click(screen.getByText("Contexts"));
-  const row = await waitFor(() => screen.getByText(contextListFixture.items[0]!.taskId!));
-  fireEvent.click(row.closest(".row-item")!);
+  fireEvent.click(await screen.findByRole("button", { name: /task-42.*open trace/i }));
   await waitFor(() => screen.getByText(/Context Trace/));
 
   // Select a memory node.
@@ -65,8 +63,7 @@ test("the back-to-full-graph pill button also clears trace mode", async () => {
   stubApi();
   render(<App />);
   fireEvent.click(screen.getByText("Contexts"));
-  const row = await waitFor(() => screen.getByText(contextListFixture.items[0]!.taskId!));
-  fireEvent.click(row.closest(".row-item")!);
+  fireEvent.click(await screen.findByRole("button", { name: /task-42.*open trace/i }));
   const backButton = await screen.findByRole("button", { name: /back to full graph/i });
   fireEvent.click(backButton);
   await waitFor(() => expect(screen.queryByText(/Context Trace/)).toBeNull());

@@ -1,5 +1,5 @@
 import { test, expect, vi, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../api-client";
 import { BrainMapPage } from "./BrainMapPage";
 import { memoryGraphFixture, emptyMemoryGraphFixture } from "../fixtures/graph.fixture";
@@ -99,4 +99,37 @@ test("search filters matched nodes, passed through as matchedIds", async () => {
     const matchIndex = memoryGraphFixture.nodes.findIndex((n) => n.id === "m1");
     expect(circles[matchIndex]?.getAttribute("stroke")).toBe("var(--warning)");
   });
+});
+
+test("checkboxes combine types within a group and intersect with scopes", async () => {
+  vi.spyOn(api, "getMemoryGraph").mockResolvedValue({
+    ...memoryGraphFixture,
+    nodes: memoryGraphFixture.nodes.map((node) => node.id === "m1"
+      ? { ...node, scope: { kind: "project", id: "test" } } : node),
+  });
+  const { container } = renderPage();
+  await screen.findByText("7 visible");
+  const filters = screen.getByRole("button", { name: "Filters" });
+  fireEvent.click(filters);
+  fireEvent.click(screen.getByRole("checkbox", { name: "rule" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "pattern" }));
+  expect(screen.getByText("3 visible")).toBeTruthy();
+  const scopes = screen.getByRole("group", { name: "Scopes" });
+  // A label click can momentarily leave focus unset before toggling its checkbox.
+  fireEvent.blur(filters, { relatedTarget: null });
+  fireEvent.click(within(scopes).getByText("project: test"));
+  expect(filters.getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByText("1 visible")).toBeTruthy();
+  const displayed = container.querySelectorAll(".graph-node:not([display='none'])");
+  expect(displayed).toHaveLength(1);
+  expect(displayed[0]?.getAttribute("aria-label")).toContain("plural nouns");
+});
+
+test("the search button submits the centered search form", () => {
+  vi.spyOn(api, "getMemoryGraph").mockResolvedValue(memoryGraphFixture);
+  const onSearchQueryChange = vi.fn();
+  renderPage({ onSearchQueryChange });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: " plural " } });
+  fireEvent.submit(screen.getByRole("search"));
+  expect(onSearchQueryChange).toHaveBeenCalledWith("plural");
 });

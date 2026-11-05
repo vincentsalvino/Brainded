@@ -1,11 +1,14 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { api } from "../api-client";
 import { useFetch } from "../use-fetch";
 import { EmptyState } from "../components/EmptyState";
 import { GraphCanvas, type TraceState } from "../components/GraphCanvas";
 import { MemoryInspector } from "../components/MemoryInspector";
 import { Skeleton } from "../components/Skeleton";
+import { Icon } from "../components/Icon";
+import { CheckboxFilter } from "../components/CheckboxFilter";
 import { MEMORY_TYPE_COLORS } from "../memory-type-colors";
+import { formatTimestamp, scopeKey, scopeLabel } from "../display-format";
 
 interface BrainMapPageProps {
   activeContextId: string | null;
@@ -31,6 +34,8 @@ export function BrainMapPage({
   searchQuery,
   onSearchQueryChange,
 }: BrainMapPageProps) {
+  const [memoryTypes, setMemoryTypes] = useState<Set<string>>(() => new Set());
+  const [memoryScopes, setMemoryScopes] = useState<Set<string>>(() => new Set());
   const { data: graph, error } = useFetch(() => api.getMemoryGraph(), []);
   const { data: contextDetail } = useFetch(
     () => (activeContextId ? api.getContextDetail(activeContextId) : Promise.resolve(null)),
@@ -39,6 +44,14 @@ export function BrainMapPage({
 
   const nodesById = useMemo(() => new Map((graph?.nodes ?? []).map((n) => [n.id, n])), [graph]);
   const visibleTypes = useMemo(() => [...new Set((graph?.nodes ?? []).map((node) => node.type))].sort(), [graph]);
+  const scopes = useMemo(() => [...new Map((graph?.nodes ?? []).map(({ scope }) => [scopeKey(scope), scopeLabel(scope)]))]
+    .sort((a, b) => a[1].localeCompare(b[1])), [graph]);
+  const filteredIds = useMemo(() => {
+    if (!graph || (!memoryTypes.size && !memoryScopes.size)) return null;
+    return new Set(graph.nodes.filter((node) => (
+      (!memoryTypes.size || memoryTypes.has(node.type)) && (!memoryScopes.size || memoryScopes.has(scopeKey(node.scope)))
+    )).map((node) => node.id));
+  }, [graph, memoryTypes, memoryScopes]);
 
   const traceHighlight = useMemo(() => {
     if (!contextDetail) return null;
@@ -52,10 +65,11 @@ export function BrainMapPage({
     const query = searchQuery.trim().toLowerCase();
     if (!query || !graph) return null;
     const ids = graph.nodes
-      .filter((n) => n.contentPreview.toLowerCase().includes(query) || n.tags.some((t) => t.toLowerCase().includes(query)))
+      .filter((n) => (!filteredIds || filteredIds.has(n.id))
+        && (n.contentPreview.toLowerCase().includes(query) || n.tags.some((t) => t.toLowerCase().includes(query))))
       .map((n) => n.id);
     return new Set(ids);
-  }, [graph, searchQuery]);
+  }, [graph, searchQuery, filteredIds]);
 
   if (error) return <EmptyState message={`failed to load memory graph: ${error.message}`} tone="error" />;
 
@@ -67,36 +81,49 @@ export function BrainMapPage({
         </span>
       )}
 
-      <div className="brain-map-header">
+      <div className="map-toolbar">
         <div className="brain-map-title">
-          <h1>Memory map</h1>
+          <h1 className="icon-label"><Icon name="network" />Memory map</h1>
           {graph ? (
             <span className="graph-summary">
               {graph.meta.totalMemories} memories · {graph.meta.totalEdges} relationships
             </span>
-          ) : (
-            <Skeleton width={172} height={12} />
-          )}
+          ) : <Skeleton width={172} height={12} />}
         </div>
-        <div className="brain-map-search">
-          <input
-            type="search"
-            aria-label="Search memories"
-            placeholder="Search memories..."
-            value={searchQuery}
-            onChange={(e) => onSearchQueryChange(e.target.value)}
-          />
-          {matchedIds && (
-            <span className="search-results" role="status">
-              {matchedIds.size} {matchedIds.size === 1 ? "match" : "matches"}
-            </span>
-          )}
+        <form className="map-search" role="search" onSubmit={(event) => {
+          event.preventDefault();
+          onSearchQueryChange(String(new FormData(event.currentTarget).get("query") ?? "").trim());
+        }}>
+          <input type="search" name="query" aria-label="Search memories" placeholder="Search memories..."
+            defaultValue={searchQuery} onChange={(event) => {
+              if (!event.target.value && searchQuery) onSearchQueryChange("");
+            }} />
+          <button type="submit" aria-label="Search" title="Search"><Icon name="search" /></button>
+        </form>
+        <div className="map-toolbar-actions">
+          {graph && <div className="map-count" role="status">
+            <span className="icon-label"><Icon name="eye" />{filteredIds?.size ?? graph.nodes.length} visible</span>
+            {matchedIds && <span className="map-match-count">{matchedIds.size} {matchedIds.size === 1 ? "match" : "matches"}</span>}
+          </div>}
+          <CheckboxFilter groups={[
+            {
+              label: "Types", selected: memoryTypes, onChange: setMemoryTypes,
+              options: visibleTypes.map((type) => ({
+                value: type, label: type.replaceAll("_", " "), color: MEMORY_TYPE_COLORS[type],
+              })),
+            },
+            {
+              label: "Scopes", selected: memoryScopes, onChange: setMemoryScopes,
+              options: scopes.map(([value, label]) => ({ value, label })),
+            },
+          ]} />
         </div>
       </div>
 
       {activeContextId && contextDetail && (
         <span className="context-trace badge included">
-          Context Trace: task {contextDetail.context.taskId ?? "(none)"} · {contextDetail.context.timestamp}
+          <Icon name="layers" />
+          Context Trace: task {contextDetail.context.taskId ?? "(none)"} · {formatTimestamp(contextDetail.context.timestamp)}
           {contextDetail.outcomes.length > 0 && ` · ${contextDetail.outcomes.map((o) => o.outcome).join(", ")}`}
           <button type="button" onClick={onClearContext}>Back to full graph</button>
         </span>
@@ -116,10 +143,12 @@ export function BrainMapPage({
                 onSelectMemory={onSelectMemory}
                 traceHighlight={traceHighlight}
                 matchedIds={matchedIds}
+                filteredIds={filteredIds}
               />
             ) : (
               <Skeleton width="100%" height="100%" />
             )}
+            {filteredIds?.size === 0 && <p className="graph-no-matches" role="status">No memories match these filters.</p>}
             {graph && selectedMemoryId && (
               <MemoryInspector
                 id={selectedMemoryId}

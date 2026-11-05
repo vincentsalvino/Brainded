@@ -10,7 +10,6 @@ import { api } from "./api-client";
 
 export function App() {
   const [view, setView] = useState<Section>("map");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeContextId, setActiveContextId] = useState<string | null>(null);
   const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -33,20 +32,16 @@ export function App() {
   }, [clearTopmostOverlay]);
 
   function selectFromContextList(contextId: string): void {
+    setSelectedMemoryId(null);
     setActiveContextId(contextId);
     setView("map");
   }
 
   return (
-    <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+    <div className="app-shell">
       <TopBar vectorSearchAvailable={overview?.vectorSearchAvailable ?? null} />
-      <Sidebar
-        active={view}
-        onSelect={setView}
-        collapsed={sidebarCollapsed}
-        onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
-      />
-      <main className="main">
+      <Sidebar active={view} onSelect={setView} />
+      <main className={view === "contexts-list" ? "main main-contexts" : "main"}>
         {view === "overview" && <OverviewPage />}
         {view === "contexts-list" && <ContextListPage onSelect={selectFromContextList} />}
         {view === "map" && (

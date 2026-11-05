@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+
 interface StatusFooterProps {
   learningEnabled: boolean | null;
   redundancyEnabled: boolean | null;
@@ -10,8 +12,8 @@ function Dot({ on }: { on: boolean | null }) {
 export function StatusFooter({ learningEnabled, redundancyEnabled }: StatusFooterProps) {
   return (
     <footer className="footer">
-      <span>
-        <Dot on={true} /> SQLite (readonly)
+      <span className="icon-label">
+        <Icon name="database" /> SQLite (readonly)
       </span>
       <span>
         <Dot on={learningEnabled} /> Learning {learningEnabled === null ? "..." : learningEnabled ? "ON" : "OFF"}
