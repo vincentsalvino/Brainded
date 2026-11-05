@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@brain/contracts": "0.1.0",
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "^4.3.2",
     "better-sqlite3": "^13.0.3",
     "sqlite-vec": "^0.1.9"
   },
