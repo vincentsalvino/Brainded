@@ -1,4 +1,4 @@
-import { pipeline, type FeatureExtractionPipeline } from "@huggingface/transformers";
+import type { FeatureExtractionPipeline } from "@huggingface/transformers";
 import type { EmbeddingProvider } from "@brain/contracts";
 import { EMBEDDING_DIMENSIONS } from "./db.js";
 
@@ -16,8 +16,15 @@ import { EMBEDDING_DIMENSIONS } from "./db.js";
 export class LocalEmbeddingProvider implements EmbeddingProvider {
   private extractorPromise: Promise<FeatureExtractionPipeline> | null = null;
 
+  constructor(private readonly options: { localFilesOnly?: boolean; cacheDir?: string } = {}) {}
+
   private async getExtractor(): Promise<FeatureExtractionPipeline> {
-    this.extractorPromise ??= pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
+    this.extractorPromise ??= import("@huggingface/transformers").then(({ pipeline }) =>
+      pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", {
+        local_files_only: this.options.localFilesOnly ?? false,
+        ...(this.options.cacheDir ? { cache_dir: this.options.cacheDir } : {}),
+      }),
+    );
     return this.extractorPromise;
   }
 

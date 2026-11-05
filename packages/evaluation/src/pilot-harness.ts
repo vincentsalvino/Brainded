@@ -1,4 +1,6 @@
-import { copyFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import Database from "better-sqlite3";
 
 /**
  * Phase 4.3C mechanics (docs/archive/phase-4/PHASE_4_3_REPORT.md "ORGANIC PILOT DESIGN"). Deliberately minimal --
@@ -10,14 +12,22 @@ import { copyFileSync, existsSync } from "node:fs";
  * correct and testable without running a single real task.
  */
 
-/** A pre-task DB snapshot is a plain file copy -- the same primitive Phase 4.1/4.2's own
- *  validation runs already used against data/brain.db. Returns the snapshot path. */
-export function snapshotDatabase(sourcePath: string, snapshotPath: string): string {
+/** SQLite's online backup includes committed WAL pages. A main-file copy does not.
+ * The source is driver-enforced read-only; existing destinations are rejected. */
+export async function snapshotDatabase(sourcePath: string, snapshotPath: string): Promise<string> {
   if (!existsSync(sourcePath)) {
     throw new Error(`snapshotDatabase: source database does not exist: ${sourcePath}`);
   }
-  copyFileSync(sourcePath, snapshotPath);
-  return snapshotPath;
+  if (resolve(sourcePath) === resolve(snapshotPath) || existsSync(snapshotPath)) {
+    throw new Error("snapshotDatabase: destination must be a new, distinct file");
+  }
+  const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
+  try {
+    await source.backup(snapshotPath);
+    return snapshotPath;
+  } finally {
+    source.close();
+  }
 }
 
 export type PilotArm = "learning-off" | "learning-on";

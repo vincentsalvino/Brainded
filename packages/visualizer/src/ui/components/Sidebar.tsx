@@ -15,7 +15,20 @@ const LINKS: { id: Section; label: string }[] = [
 
 export function Sidebar({ active, onSelect, collapsed, onToggleCollapsed }: SidebarProps) {
   return (
-    <nav className={`sidebar${collapsed ? " collapsed" : ""}`}>
+    <nav className={`sidebar${collapsed ? " collapsed" : ""}`} aria-label="Visualizer">
+      {LINKS.map((link) => (
+        <button
+          key={link.id}
+          type="button"
+          className={`sidebar-link${active === link.id ? " active" : ""}`}
+          onClick={() => onSelect(link.id)}
+          title={collapsed ? link.label : undefined}
+          aria-label={link.label}
+          aria-current={active === link.id ? "page" : undefined}
+        >
+          {collapsed ? link.label.slice(0, 1) : link.label}
+        </button>
+      ))}
       <button
         type="button"
         className="sidebar-toggle"
@@ -25,17 +38,6 @@ export function Sidebar({ active, onSelect, collapsed, onToggleCollapsed }: Side
       >
         {collapsed ? "»" : "«"}
       </button>
-      {LINKS.map((link) => (
-        <button
-          key={link.id}
-          type="button"
-          className={`sidebar-link${active === link.id ? " active" : ""}`}
-          onClick={() => onSelect(link.id)}
-          title={collapsed ? link.label : undefined}
-        >
-          {collapsed ? link.label.slice(0, 1) : link.label}
-        </button>
-      ))}
     </nav>
   );
 }

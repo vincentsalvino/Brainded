@@ -20,10 +20,13 @@
     "check": "npm run build && npm run typecheck --workspaces --if-present && npm test",
     "mcp": "node packages/mcp/dist/server.js data/brain.db",
     "visualizer": "npm run dev --workspace=@brain/visualizer",
-    "dev": "npm run dev --workspace=@brain/visualizer"
+    "dev": "npm run dev --workspace=@brain/visualizer",
+    "validate:brain": "npm run build:dependencies && node packages/evaluation/validation/run.mjs",
+    "package:mcp": "node scripts/pack-mcp.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
+    "esbuild": "0.25.12",
     "@types/node": "^24.0.0"
   },
   "overrides": {

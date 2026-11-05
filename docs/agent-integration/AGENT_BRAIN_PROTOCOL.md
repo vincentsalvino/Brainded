@@ -18,7 +18,7 @@ process, this one is mechanics.
 
 ## Task start
 
-Call `brain_context` at the start of any task with:
+Call `brain_context` at the start of substantive work with:
 - `task` — a short natural-language description of what you're about to do.
 - `scope` — `{ kind: "project", id: <project-id> }` for project-specific
   work, or `{ kind: "global", id: null }` for cross-project knowledge (`id`
@@ -71,10 +71,10 @@ After `brain_context` hands you memories, call `brain_feedback` once you know
 whether each one actually helped: `useful: true` if it did, `useful: false`
 with a `reason` (`"redundant"`, `"irrelevant"`, `"incorrect"`, or `"other"`) if
 it didn't. Always include the `contextId` from the delivery you're reporting
-on, and the `memoryId` of the specific memory. Feedback is used for future
+on, the original `taskId`, and the `memoryId` of the specific memory. Review
+all delivered items and leave uncertain items unlabeled. Feedback supports future
 ranking (currently OFF by default — `DEFAULT_LEARNING_CONFIG.enabled = false` —
-see `docs/agent-integration/AGENT_INTEGRATION_FINDINGS.md` for why); recording
-it accurately now costs nothing and matters once it's enabled.
+see `docs/agent-integration/AGENT_INTEGRATION_FINDINGS.md` for why).
 
 ## Outcome recording
 

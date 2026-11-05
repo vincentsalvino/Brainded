@@ -51,6 +51,8 @@ isolate project-specific knowledge. Read the
 [agent protocol](docs/agent-integration/AGENT_BRAIN_PROTOCOL.md) and
 [workflow policy](docs/agent-integration/BRAIN_WORKFLOW_POLICY.md) before using
 the `brain_*` tools.
+The [client setup guide](docs/agent-integration/CLIENT_SETUP.md) covers Codex,
+ChatGPT, Claude Code, and other MCP hosts.
 
 ## Run the visualizer
 
@@ -97,3 +99,27 @@ are excluded from Git.
 
 See the [documentation index](docs/README.md) for design references and
 [CONTRIBUTING.md](CONTRIBUTING.md) for package rules, checks, and optional tests.
+
+For a reproducible local storage/retrieval/workflow audit, run
+`npm run validate:brain -- --db <absolute-db-path> --out <new-results-directory>`.
+See the [validation runner](packages/evaluation/validation/README.md) and
+[ranked direction and test plan](docs/architecture/BRAIN_EVIDENCE_PLAN.md).
+
+## Install Brain on another device
+
+Build an npm tarball with `npm run package:mcp`. Copy the resulting
+`.release/brainded-mcp-0.1.0.tgz` to a device with Node.js 24 or newer.
+To keep an existing artifact, pass a different output directory with
+`npm run package:mcp -- <output-directory>`.
+
+```sh
+npm install --global ./brainded-mcp-0.1.0.tgz
+brain-mcp --check
+brain-mcp --config
+```
+
+Add the generated entry to your MCP client and reconnect. The CLI uses
+`~/.brainded/brain.db` by default. Pass an absolute database path after
+`--config` to use a different database. The tarball includes the server and
+database migrations. npm resolves runtime dependencies for the device. The
+first semantic operation can download the model to `~/.brainded/models`.

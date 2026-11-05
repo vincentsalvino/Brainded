@@ -16,6 +16,7 @@ current implementation and archived phase findings when assessing what ships.
 
 ## Agent integration
 
+- [Client setup and portable instructions](agent-integration/CLIENT_SETUP.md)
 - [Agent protocol](agent-integration/AGENT_BRAIN_PROTOCOL.md): client-independent tool contract.
 - [Workflow policy](agent-integration/BRAIN_WORKFLOW_POLICY.md): preflight, feedback, and outcomes.
 - [Integration specification](agent-integration/AGENT_INTEGRATION_V1_SPEC.md).

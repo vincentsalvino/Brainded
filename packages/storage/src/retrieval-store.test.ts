@@ -4,7 +4,26 @@ import { globalScope, projectScope } from "@brain/contracts";
 import { FakeEmbeddingProvider, runRetrievalStoreConformance } from "@brain/test-fixtures";
 import { openDatabase } from "./db.js";
 import { SqliteMemoryRepository } from "./memory-repository.js";
-import { SqliteRetrievalStore } from "./retrieval-store.js";
+import { DEFAULT_MEMORY_RELEVANCE, SqliteRetrievalStore } from "./retrieval-store.js";
+
+test("relevance admits a paraphrase and abstains when only common words match", async () => {
+  const db = openDatabase(":memory:");
+  try {
+    const vector = (axis: number) => Array.from({ length: 384 }, (_, index) => Number(index === axis));
+    const embeddings = { embed: async (text: string) => vector(text.includes("bread") ? 1 : 0) };
+    const repo = new SqliteMemoryRepository(db.raw, embeddings);
+    const relevant = await repo.create({ type: "rule", content: "Use the repository for database access.", scope: globalScope() });
+    const store = new SqliteRetrievalStore(db.raw, embeddings, db.vectorSearchAvailable, DEFAULT_MEMORY_RELEVANCE);
+    const unrelated = { text: "How do I bake bread?", scope: globalScope() };
+    assert.deepEqual(await store.lexicalSearch(unrelated), []);
+    assert.deepEqual(await store.semanticSearch(unrelated), []);
+    const paraphrase = { text: "Persistence abstraction", scope: globalScope() };
+    assert.deepEqual(await store.lexicalSearch(paraphrase), []);
+    assert.deepEqual((await store.semanticSearch(paraphrase)).map(hit => hit.memoryId), [relevant.id]);
+  } finally {
+    db.close();
+  }
+});
 
 function setup() {
   const db = openDatabase(":memory:");

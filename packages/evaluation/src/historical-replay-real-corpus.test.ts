@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, copyFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { snapshotDatabase } from "./pilot-harness.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Candidate } from "@brain/contracts";
@@ -16,7 +17,7 @@ import {
 
 /**
  * Phase 4.3B real run (docs/archive/phase-4/PHASE_4_3_REPORT.md "HISTORICAL REPLAY RESULTS"). Operates on a COPY
- * of the real data/brain.db -- copied via `copyFileSync`, never opened with a migrating
+ * of the real data/brain.db -- captured via SQLite online backup (including WAL), never opened with a migrating
  * connection at the original path (PHASE_4_FINDINGS.md's live-database-safety discipline,
  * unchanged since Phase 4.1/4.2). Uses the REAL LocalEmbeddingProvider (a real local model) to
  * re-derive semantic scores from the copy's own preserved memory_vectors/FTS5 index -- this is
@@ -34,7 +35,7 @@ test("integration: Phase 4.3B time-causal replay over the real historical corpus
   const REAL_DB = join(process.cwd(), "..", "..", "data", "brain.db");
   const dir = mkdtempSync(join(tmpdir(), "brain-phase43-replay-"));
   const copyPath = join(dir, "brain.db");
-  copyFileSync(REAL_DB, copyPath);
+  await snapshotDatabase(REAL_DB, copyPath);
 
   const db = openDatabase(copyPath); // migrating this COPY only, never the original
   const embeddings = new LocalEmbeddingProvider();

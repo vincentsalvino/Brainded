@@ -62,6 +62,9 @@ export function GraphCanvas({
     handleBackgroundPointerMove,
     handleBackgroundPointerUp,
     resetView,
+    fitView,
+    zoomIn,
+    zoomOut,
   } = useForceLayout(simNodes, simLinks);
 
   // null = nothing selected, don't dim anything. Recomputed on every simLinks
@@ -85,74 +88,98 @@ export function GraphCanvas({
   }
 
   return (
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`}
-      style={{ width: "100%", height: "100%", display: "block" }}
-      onWheel={handleWheelZoom}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) return; // clicking empty canvas: no-op here, App handles clearing selection
-      }}
-    >
-      {/* Fixed-size hit target for panning -- deliberately OUTSIDE the pan/zoom
-          group below, so it always covers the visible viewport regardless of
-          the current transform. Double-click resets the view (getting stuck
-          zoomed/panned out with no way back is a real dead end otherwise). */}
-      <rect
-        x={0}
-        y={0}
-        width={GRAPH_WIDTH}
-        height={GRAPH_HEIGHT}
-        fill="transparent"
-        style={{ cursor: "grab" }}
-        onPointerDown={handleBackgroundPointerDown}
-        onPointerMove={handleBackgroundPointerMove}
-        onPointerUp={handleBackgroundPointerUp}
-        onDoubleClick={resetView}
-      />
-      <g ref={viewportRef}>
-        <g>
-          {simLinks.map((link, i) => {
-            const isConnected = connectedLinkIndexes?.has(i) ?? false;
-            const dimmed = connectedLinkIndexes !== null && !isConnected;
-            return (
-              <line
-                key={i}
-                ref={registerLink(i)}
-                strokeDasharray={link.kind === "supersedes" ? "4 3" : undefined}
-                stroke={isConnected ? "var(--accent)" : link.kind === "supersedes" ? "var(--warning)" : "var(--border-strong)"}
-                strokeWidth={isConnected ? 2 : 1}
-                opacity={dimmed ? 0.15 : 1}
-              />
-            );
-          })}
+    <div className="graph-stage">
+      <svg
+        ref={svgRef}
+        aria-label="Memory relationships"
+        className="memory-graph"
+        viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`}
+        style={{ width: "100%", height: "100%", display: "block" }}
+        onWheel={handleWheelZoom}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) return; // clicking empty canvas: no-op here, App handles clearing selection
+        }}
+      >
+        {/* Fixed-size hit target for panning -- deliberately OUTSIDE the pan/zoom
+            group below, so it always covers the visible viewport regardless of
+            the current transform. Double-click resets the view (getting stuck
+            zoomed/panned out with no way back is a real dead end otherwise). */}
+        <rect
+          x={0}
+          y={0}
+          width={GRAPH_WIDTH}
+          height={GRAPH_HEIGHT}
+          fill="transparent"
+          style={{ cursor: "grab" }}
+          onPointerDown={handleBackgroundPointerDown}
+          onPointerMove={handleBackgroundPointerMove}
+          onPointerUp={handleBackgroundPointerUp}
+          onDoubleClick={resetView}
+        />
+        <g ref={viewportRef}>
+          <g>
+            {simLinks.map((link, i) => {
+              const isConnected = connectedLinkIndexes?.has(i) ?? false;
+              const dimmed = connectedLinkIndexes !== null && !isConnected;
+              return (
+                <line
+                  key={i}
+                  ref={registerLink(i)}
+                  strokeDasharray={link.kind === "supersedes" ? "4 3" : undefined}
+                  stroke={isConnected ? "var(--accent)" : link.kind === "supersedes" ? "var(--warning)" : "var(--graph-edge)"}
+                  strokeWidth={isConnected ? 2.25 : 1.35}
+                  vectorEffect="non-scaling-stroke"
+                  strokeLinecap="round"
+                  pointerEvents="none"
+                  opacity={dimmed ? 0.35 : 1}
+                />
+              );
+            })}
+          </g>
+          <g>
+            {nodes.map((node) => {
+              const isSelected = node.id === selectedMemoryId;
+              const isMatch = matchedIds?.has(node.id) ?? false;
+              return (
+                <circle
+                  key={node.id}
+                  ref={registerNode(node.id)}
+                  className="graph-node"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${node.type.replaceAll("_", " ")}: ${node.contentPreview}`}
+                  aria-pressed={isSelected}
+                  r={nodeRadius(node.confidence)}
+                  fill={MEMORY_TYPE_COLORS[node.type]}
+                  opacity={opacityFor(node.id)}
+                  stroke={isSelected ? "var(--accent)" : isMatch ? "var(--warning)" : "var(--surface-0)"}
+                  strokeWidth={isSelected ? 2.5 : isMatch ? 2 : 1.25}
+                  vectorEffect="non-scaling-stroke"
+                  style={{ cursor: "pointer" }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelectMemory(node.id);
+                    }
+                  }}
+                  onPointerDown={(e) => handlePointerDown(node.id, e)}
+                  onPointerMove={(e) => handlePointerMove(node.id, e)}
+                  onPointerUp={(e) => {
+                    if (handlePointerUp(node.id, e)) onSelectMemory(node.id);
+                  }}
+                >
+                  <title>{`${node.type} · confidence ${node.confidence.toFixed(2)}\n${node.contentPreview}`}</title>
+                </circle>
+              );
+            })}
+          </g>
         </g>
-        <g>
-          {nodes.map((node) => {
-            const isSelected = node.id === selectedMemoryId;
-            const isMatch = matchedIds?.has(node.id) ?? false;
-            return (
-              <circle
-                key={node.id}
-                ref={registerNode(node.id)}
-                r={nodeRadius(node.confidence)}
-                fill={MEMORY_TYPE_COLORS[node.type]}
-                opacity={opacityFor(node.id)}
-                stroke={isSelected ? "var(--accent)" : isMatch ? "var(--warning)" : "none"}
-                strokeWidth={isSelected ? 2.5 : isMatch ? 2 : 0}
-                style={{ cursor: "pointer" }}
-                onPointerDown={(e) => handlePointerDown(node.id, e)}
-                onPointerMove={(e) => handlePointerMove(node.id, e)}
-                onPointerUp={(e) => {
-                  if (handlePointerUp(node.id, e)) onSelectMemory(node.id);
-                }}
-              >
-                <title>{`${node.type} · confidence ${node.confidence.toFixed(2)}\n${node.contentPreview}`}</title>
-              </circle>
-            );
-          })}
-        </g>
-      </g>
-    </svg>
+      </svg>
+      <div className="graph-controls" role="group" aria-label="Graph view controls">
+        <button type="button" onClick={zoomOut} aria-label="Zoom out" title="Zoom out">−</button>
+        <button type="button" onClick={zoomIn} aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" onClick={fitView} className="graph-fit">Fit view</button>
+      </div>
+    </div>
   );
 }

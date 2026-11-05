@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "brain-mcp": "./dist/server.js"
+    "brain-mcp": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

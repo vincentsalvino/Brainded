@@ -13,6 +13,7 @@ native/session memory — the protocol above covers how the two coexist.
 
 For substantive work (architecture-sensitive, multi-file, a bug
 investigation, a refactor, a schema/API change) — not a typo or a one-line
-fix — call `brain_context` before implementing, keep the `contextId`, and
-record `brain_record_outcome` when done. Full policy:
+fix — call `brain_context` before implementing, keep the `taskId` and
+`contextId`, record `brain_feedback` for clear judgments on delivered
+memories, and call `brain_record_outcome` before replying. Full policy:
 `docs/agent-integration/BRAIN_WORKFLOW_POLICY.md`.

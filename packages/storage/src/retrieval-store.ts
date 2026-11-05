@@ -77,6 +77,19 @@ function buildFtsQuery(text: string): string {
   return terms.length === 0 ? '""' : terms.map((t) => `"${t}"`).join(" OR ");
 }
 
+// Common prompt words provide little evidence that a memory answers a query.
+const commonTerms = new Set(
+  "a an and are as at be been but by can could did do does for from had has have how i if in into is it its me my of on or our should so than that the their them then there these they this those to up us use using was we were what when where which who why will with would you your".split(" "),
+);
+
+export const DEFAULT_MEMORY_RELEVANCE = { minSemanticSimilarity: 0.3 } as const;
+
+function significantFtsQuery(text: string): string | null {
+  const terms = text.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const significant = new Set(terms.map(term => term.toLowerCase()).filter(term => !commonTerms.has(term)));
+  return significant.size > 0 ? buildFtsQuery([...significant].join(" ")) : null;
+}
+
 /**
  * SQLite-backed RetrievalStore: FTS5 for lexicalSearch, sqlite-vec for
  * semanticSearch. Neither method catches its own failures -- degradation policy
@@ -89,6 +102,7 @@ export class SqliteRetrievalStore implements RetrievalStore {
     private readonly db: Database.Database,
     private readonly embeddings: EmbeddingProvider,
     private readonly vectorSearchAvailable: boolean = true,
+    private readonly relevance?: { minSemanticSimilarity: number },
   ) {}
 
   private whereClauses(query: RetrievalQuery): { clause: string; params: unknown[] } {
@@ -117,7 +131,8 @@ export class SqliteRetrievalStore implements RetrievalStore {
 
   async lexicalSearch(rawQuery: RetrievalQuery): Promise<Candidate[]> {
     const query = RetrievalQuerySchema.parse(rawQuery);
-    const ftsQuery = buildFtsQuery(query.text);
+    const ftsQuery = this.relevance ? significantFtsQuery(query.text) : buildFtsQuery(query.text);
+    if (ftsQuery === null) return [];
     const where = this.whereClauses(query);
     const rows = this.db
       .prepare(
@@ -158,12 +173,12 @@ export class SqliteRetrievalStore implements RetrievalStore {
       throw new Error("vector search unavailable: sqlite-vec failed to load on this platform");
     }
     const query = RetrievalQuerySchema.parse(rawQuery);
-    const queryVector = await this.embeddings.embed(query.text);
+    const queryVector = JSON.stringify(await this.embeddings.embed(query.text));
     const overFetch = Math.max(query.limit * 5, 50);
 
     const knnRows = this.db
       .prepare(`SELECT memory_id, distance FROM memory_vectors WHERE embedding MATCH ? AND k = ? ORDER BY distance`)
-      .all(JSON.stringify(queryVector), overFetch) as { memory_id: string; distance: number }[];
+      .all(queryVector, overFetch) as { memory_id: string; distance: number }[];
     if (knnRows.length === 0) return [];
 
     const where = this.whereClauses(query);
@@ -172,6 +187,12 @@ export class SqliteRetrievalStore implements RetrievalStore {
       .prepare(`SELECT * FROM memories WHERE id IN (${placeholders}) AND ${where.clause}`)
       .all(...knnRows.map((r) => r.memory_id), ...where.params) as MemoryRow[];
     const byId = new Map(rows.map((r) => [r.id, rowToRecord(r)]));
+
+    // A relative rank alone can promote the best of several unrelated vectors.
+    // Check absolute cosine similarity before normalizing the remaining scores.
+    const similarity = this.relevance
+      ? this.db.prepare(`SELECT 1 - vec_distance_cosine(embedding, ?) AS score FROM memory_vectors WHERE memory_id = ?`)
+      : undefined;
 
     // Nearer is better, so negate distance before normalizing -- same contract as
     // lexicalSearch above. The pre-P2-002 `1 / (1 + distance)` was correctly
@@ -183,6 +204,10 @@ export class SqliteRetrievalStore implements RetrievalStore {
     for (const knn of knnRows) {
       const record = byId.get(knn.memory_id);
       if (!record || !this.matchesTags(record, query)) continue;
+      if (similarity && this.relevance) {
+        const hit = similarity.get(queryVector, knn.memory_id) as { score: number | null } | undefined;
+        if (hit?.score == null || !Number.isFinite(hit.score) || hit.score < this.relevance.minSemanticSimilarity) continue;
+      }
       selected.push({ record, raw: -knn.distance });
       if (selected.length >= query.limit) break;
     }

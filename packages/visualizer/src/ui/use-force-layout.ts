@@ -1,34 +1,14 @@
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
-import {
-  forceSimulation,
-  forceManyBody,
-  forceLink,
-  forceCenter,
-  forceCollide,
-  type Simulation,
-  type SimulationNodeDatum,
-  type SimulationLinkDatum,
-} from "d3-force";
-
-export interface SimNode extends SimulationNodeDatum {
-  id: string;
-  radius: number;
-}
-
-export interface SimLink extends SimulationLinkDatum<SimNode> {
-  kind: "similarity" | "supersedes";
-  similarity?: number;
-}
+import type { Simulation, forceLink } from "d3-force";
+import { createGraphSimulation, GRAPH_WIDTH, GRAPH_HEIGHT, type SimNode, type SimLink } from "./graph-layout";
+export { GRAPH_WIDTH, GRAPH_HEIGHT, type SimNode, type SimLink } from "./graph-layout";
 
 // Fixed internal coordinate space -- <svg viewBox="0 0 WIDTH HEIGHT"> scales
 // responsively for free (native SVG), no ResizeObserver needed. Node/edge
 // positions (from d3-force) live in this "world space"; pan/zoom is a
 // SEPARATE, outer transform on top (see viewportRef) -- the two never need to
 // know about each other except at the one point drag math converts between them.
-export const GRAPH_WIDTH = 1000;
-export const GRAPH_HEIGHT = 700;
-
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.15;
@@ -46,9 +26,10 @@ interface ViewTransform {
 /** Client pixels -> SVG viewBox space (the outer CSS-size <-> viewBox mapping, unaffected by pan/zoom). */
 function clientToViewBoxPoint(svg: SVGSVGElement, clientX: number, clientY: number): { x: number; y: number } {
   const rect = svg.getBoundingClientRect();
+  const scale = Math.min(rect.width / GRAPH_WIDTH, rect.height / GRAPH_HEIGHT) || 1;
   return {
-    x: ((clientX - rect.left) / rect.width) * GRAPH_WIDTH,
-    y: ((clientY - rect.top) / rect.height) * GRAPH_HEIGHT,
+    x: (clientX - rect.left - (rect.width - GRAPH_WIDTH * scale) / 2) / scale,
+    y: (clientY - rect.top - (rect.height - GRAPH_HEIGHT * scale) / 2) / scale,
   };
 }
 
@@ -71,6 +52,9 @@ export interface UseForceLayoutResult {
   handleBackgroundPointerMove: (event: React.PointerEvent<SVGElement>) => void;
   handleBackgroundPointerUp: (event: React.PointerEvent<SVGElement>) => void;
   resetView: () => void;
+  fitView: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
 }
 
 const CLICK_MOVEMENT_THRESHOLD_PX = 5;
@@ -97,6 +81,42 @@ export function useForceLayout(nodes: SimNode[], links: SimLink[]): UseForceLayo
   function applyViewTransform(): void {
     const t = transformRef.current;
     viewportRef.current?.setAttribute("transform", `translate(${t.x} ${t.y}) scale(${t.k})`);
+  }
+
+  function zoomAt(point: { x: number; y: number }, factor: number): void {
+    const t = transformRef.current;
+    const world = viewBoxToWorldPoint(point, t);
+    const k = clamp(t.k * factor, MIN_ZOOM, MAX_ZOOM);
+    transformRef.current = { x: point.x - world.x * k, y: point.y - world.y * k, k };
+    applyViewTransform();
+  }
+
+  function fitView(): void {
+    const currentNodes = simRef.current?.nodes() ?? [];
+    if (!currentNodes.length) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const node of currentNodes) {
+      const x = node.x ?? GRAPH_WIDTH / 2;
+      const y = node.y ?? GRAPH_HEIGHT / 2;
+      minX = Math.min(minX, x - node.radius);
+      maxX = Math.max(maxX, x + node.radius);
+      minY = Math.min(minY, y - node.radius);
+      maxY = Math.max(maxY, y + node.radius);
+    }
+    const k = clamp(
+      Math.min((GRAPH_WIDTH - 120) / (maxX - minX), (GRAPH_HEIGHT - 120) / (maxY - minY)),
+      MIN_ZOOM,
+      2,
+    );
+    transformRef.current = {
+      x: GRAPH_WIDTH / 2 - (minX + maxX) / 2 * k,
+      y: GRAPH_HEIGHT / 2 - (minY + maxY) / 2 * k,
+      k,
+    };
+    applyViewTransform();
   }
 
   function applyPositions(): void {
@@ -134,39 +154,31 @@ export function useForceLayout(nodes: SimNode[], links: SimLink[]): UseForceLayo
   }
 
   useEffect(() => {
-    applyViewTransform(); // explicit identity transform from the start, not an absent attribute
-    const linkForce = forceLink<SimNode, SimLink>().id((d) => d.id).distance(70);
-    linkForceRef.current = linkForce;
-    simRef.current = forceSimulation<SimNode>()
-      .force("charge", forceManyBody().strength(-140))
-      .force("link", linkForce)
-      .force("center", forceCenter(GRAPH_WIDTH / 2, GRAPH_HEIGHT / 2))
-      .force("collide", forceCollide<SimNode>((d) => d.radius + 2))
-      .on("tick", applyPositions);
-    // Load-bearing: an unmounted component's tick listener would otherwise keep
-    // firing against dead refs -- d3-force's timer is independent of React.
-    return () => {
-      simRef.current?.stop();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const sim = simRef.current;
-    const linkForce = linkForceRef.current;
-    if (!sim || !linkForce) return;
-
     // Carry forward position/velocity/pin for ids that survive a data change
     // (threshold tweak, new search) -- avoids re-scattering the whole graph.
-    const previous = new Map(sim.nodes().map((n) => [n.id, n]));
+    const previous = new Map((simRef.current?.nodes() ?? []).map((n) => [n.id, n]));
     for (const n of nodes) {
       const prior = previous.get(n.id);
       if (prior) Object.assign(n, { x: prior.x, y: prior.y, vx: prior.vx, vy: prior.vy, fx: prior.fx, fy: prior.fy });
     }
 
-    sim.nodes(nodes);
-    linkForce.links(links);
-    sim.alpha(1).restart();
+    const { simulation, linkForce } = createGraphSimulation(nodes, links);
+    simRef.current = simulation;
+    linkForceRef.current = linkForce;
+    // First paint already has a coherent layout, rather than a scattering of
+    // nodes at the origin. Selection/search never rerun this effect.
+    simulation.stop().tick(120);
+    applyPositions();
+    applyViewTransform();
+    const outsideView = nodes.some((node) =>
+      (node.x ?? 0) < 40 || (node.x ?? 0) > GRAPH_WIDTH - 40 ||
+      (node.y ?? 0) < 40 || (node.y ?? 0) > GRAPH_HEIGHT - 40,
+    );
+    if (previous.size === 0 && outsideView) fitView();
+    simulation.on("tick", applyPositions).alpha(0.25).restart();
+    return () => {
+      simulation.stop();
+    };
   }, [nodes, links]);
 
   return {
@@ -219,14 +231,8 @@ export function useForceLayout(nodes: SimNode[], links: SimLink[]): UseForceLayo
       const svg = svgRef.current;
       if (!svg) return;
       event.preventDefault();
-      const t = transformRef.current;
       const viewBoxPoint = clientToViewBoxPoint(svg, event.clientX, event.clientY);
-      const worldPoint = viewBoxToWorldPoint(viewBoxPoint, t);
-      const nextK = clamp(event.deltaY < 0 ? t.k * ZOOM_STEP : t.k / ZOOM_STEP, MIN_ZOOM, MAX_ZOOM);
-      t.x = viewBoxPoint.x - worldPoint.x * nextK;
-      t.y = viewBoxPoint.y - worldPoint.y * nextK;
-      t.k = nextK;
-      applyViewTransform();
+      zoomAt(viewBoxPoint, event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
     },
 
     /** Pan: only meaningful when the pointerdown originated on the background, not a node -- caller enforces that (e.g. a dedicated background rect). */
@@ -243,9 +249,10 @@ export function useForceLayout(nodes: SimNode[], links: SimLink[]): UseForceLayo
       const pan = panRef.current;
       const svg = svgRef.current;
       if (!pan || !svg) return;
-      const rect = svg.getBoundingClientRect();
-      const dx = ((event.clientX - pan.startClientX) / rect.width) * GRAPH_WIDTH;
-      const dy = ((event.clientY - pan.startClientY) / rect.height) * GRAPH_HEIGHT;
+      const start = clientToViewBoxPoint(svg, pan.startClientX, pan.startClientY);
+      const current = clientToViewBoxPoint(svg, event.clientX, event.clientY);
+      const dx = current.x - start.x;
+      const dy = current.y - start.y;
       transformRef.current.x = pan.startX + dx;
       transformRef.current.y = pan.startY + dy;
       applyViewTransform();
@@ -258,5 +265,8 @@ export function useForceLayout(nodes: SimNode[], links: SimLink[]): UseForceLayo
       transformRef.current = { x: 0, y: 0, k: 1 };
       applyViewTransform();
     },
+    fitView,
+    zoomIn: () => zoomAt({ x: GRAPH_WIDTH / 2, y: GRAPH_HEIGHT / 2 }, ZOOM_STEP),
+    zoomOut: () => zoomAt({ x: GRAPH_WIDTH / 2, y: GRAPH_HEIGHT / 2 }, 1 / ZOOM_STEP),
   };
 }
