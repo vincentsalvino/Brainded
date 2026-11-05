@@ -88,31 +88,31 @@ error instead of being accepted.
 
 ## Native memory coexistence
 
-Brainded (`@brain/mcp`) is the shared, cross-agent, durable memory layer —
+Memory Atlas (`@brain/mcp`) is the shared, cross-agent, durable memory layer —
 not a replacement for Claude's or Codex's own native/session memory, and not
 synchronized with either. Nothing here scrapes, imports, or mirrors
 client-native memory, and nothing should.
 
 Ownership stays split three ways:
-- **Brainded** — durable knowledge another agent, or a future session,
+- **Memory Atlas** — durable knowledge another agent, or a future session,
   should know: architecture decisions, constraints, validated conventions,
   failure modes, patterns. See "Durable-memory criteria" above.
 - **Client-native memory** — client-local preferences and continuity (e.g.
   "prefer concise responses," "this session was investigating X"). Never
-  required to mirror into Brainded.
+  required to mirror into Memory Atlas.
 - **Session context** — scratch reasoning, in-progress hypotheses, temporary
   state. Never persisted automatically.
 
 When sources conflict, higher wins: explicit user instruction > current
-repository/code state > this protocol > scoped Brainded memory > client-native
-memory > session assumption. A stale Brainded memory that contradicts the
+repository/code state > this protocol > scoped Memory Atlas memory > client-native
+memory > session assumption. A stale Memory Atlas memory that contradicts the
 current repository loses to the repository — fix or forget the memory once
 the newer state is confirmed, rather than continuing to act on it.
 
 Don't intentionally duplicate durable project knowledge into native memory
-when Brainded already holds it (project knowledge → Brainded, client
+when Memory Atlas already holds it (project knowledge → Memory Atlas, client
 preference → native memory, temporary state → session) — but a native system
-independently remembering something Brainded also knows is not a bug to fix.
+independently remembering something Memory Atlas also knows is not a bug to fix.
 
 ## What this protocol deliberately does not cover
 

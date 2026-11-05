@@ -1,7 +1,7 @@
-# Brainded
+# Memory Atlas
 
 Shared, persistent context for coding agents through the Model Context Protocol
-(MCP). Brainded stores scoped memories in SQLite and combines memory retrieval,
+(MCP). Memory Atlas stores scoped memories in SQLite and combines memory retrieval,
 indexed code, and dependency context within a token budget. Any compatible MCP
 client uses the same tools and database contract.
 
@@ -38,8 +38,8 @@ absolute paths when configuring a client that may start outside this directory:
     "ai-brain": {
       "command": "node",
       "args": [
-        "/absolute/path/to/Brainded/packages/mcp/dist/server.js",
-        "/absolute/path/to/Brainded/data/brain.db"
+        "/absolute/path/to/ai-brain/packages/mcp/dist/server.js",
+        "/absolute/path/to/ai-brain/data/brain.db"
       ]
     }
   }
@@ -54,7 +54,7 @@ the `brain_*` tools.
 The [client setup guide](docs/agent-integration/CLIENT_SETUP.md) covers Codex,
 ChatGPT, Claude Code, and other MCP hosts.
 
-## Run the visualizer
+## Open the Memory Atlas visualizer
 
 Once the MCP server has initialized the database:
 

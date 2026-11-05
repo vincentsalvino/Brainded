@@ -1,6 +1,6 @@
-# Connect an agent to Brainded
+# Connect an agent to Memory Atlas
 
-Run `npm run build` from the Brainded checkout. Use absolute paths to the built
+Run `npm run build` from the Memory Atlas checkout. Use absolute paths to the built
 server and the intended database. Local clients that should share knowledge
 must point at the same database and use the same project ID for the same repo.
 Call `brain_status` in a new session to confirm that the tools are connected.
@@ -62,7 +62,7 @@ with its stable, shared project ID. In a repository that already points to the
 [workflow policy](BRAIN_WORKFLOW_POLICY.md), keep that file as the source of truth.
 
 ```text
-Use Brainded for substantive project work such as debugging, refactors,
+Use Memory Atlas for substantive project work such as debugging, refactors,
 architecture decisions, and multi-file changes. Skip it for trivial edits.
 
 Before implementation, call brain_context with the task description, a fresh
